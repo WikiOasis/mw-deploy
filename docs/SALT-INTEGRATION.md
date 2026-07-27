@@ -707,6 +707,24 @@ server {
     location = /favicon.ico { access_log off; log_not_found off; }
     location = /robots.txt  { access_log off; log_not_found off; }
 
+    # The import screen's GET/POST (`/api/import`) run `tree-scan` synchronously —
+    # unlike a deploy, there is no queue in front of it. `tree-scan`'s own Salt
+    # timeout is 1200s (config('mwdeploy.salt.timeouts.tree-scan')) plus 60s of
+    # process slack, so this location needs more room than the general PHP block
+    # below or a large farm scan hits nginx's timeout first: a 504 with an HTML
+    # error page, which the portal's JSON parser correctly refuses to swallow but
+    # which reads as "the import broke" when really nginx just gave up early.
+    location ~ ^/api/import {
+        fastcgi_pass unix:/run/php/php8.4-fpm-deploy-portal.sock;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root/index.php;
+        fastcgi_param DOCUMENT_ROOT   $realpath_root;
+        fastcgi_hide_header X-Powered-By;
+
+        fastcgi_read_timeout 1320s;
+    }
+
     location ~ \.php$ {
         fastcgi_pass unix:/run/php/php8.4-fpm-deploy-portal.sock;
         fastcgi_index index.php;
@@ -716,7 +734,8 @@ server {
         fastcgi_hide_header X-Powered-By;
 
         # The review screen and history can be slow with a long deploy history,
-        # but nothing here should take minutes — the long work is in the queue.
+        # but nothing else here should take minutes — the long work is in the
+        # queue. (The one exception, `/api/import`, is routed above.)
         fastcgi_read_timeout 120s;
     }
 
@@ -815,7 +834,12 @@ backend deploy_portal
     # which can be tens of minutes. Without a raised tunnel timeout HAProxy drops
     # it and the dashboard silently degrades to polling.
     timeout tunnel 1h
-    timeout server 120s
+
+    # `/api/import` runs a `tree-scan` synchronously and nginx gives it up to
+    # 1320s (see the nginx config above) — HAProxy must not cut the connection
+    # before nginx would. A lower `timeout server` here turns a large farm scan
+    # into a 504 with an HAProxy error page instead of a scan result.
+    timeout server 1320s
 
     # Laravel's health endpoint, added by the framework.
     option httpchk GET /up
