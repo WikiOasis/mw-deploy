@@ -1,19 +1,23 @@
 <x-layouts.guest title="Two-factor authentication">
-    <div x-data="{ recovery: false }" class="space-y-4">
+    {{--
+        Both fields are in the page and the toggle swaps which is shown, moving
+        `required` with it (see resources/js/auth.js). With JavaScript unavailable
+        the authenticator field is the one on screen and still submits, which is the
+        case that matters: this page is between an operator and the fleet.
+    --}}
+    <div class="space-y-4">
         <form method="POST" action="{{ route('two-factor.login.store') }}" class="space-y-4">
             @csrf
 
-            <div x-show="! recovery">
+            <div data-panel-default="recovery">
                 <x-field label="Authentication code" name="code" hint="Six digits from your authenticator app.">
-                    <x-input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
-                             x-bind:required="! recovery" autofocus />
+                    <x-input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus />
                 </x-field>
             </div>
 
-            <div x-show="recovery" x-cloak>
+            <div data-panel="recovery" hidden>
                 <x-field label="Recovery code" name="recovery_code">
-                    <x-input type="text" name="recovery_code" autocomplete="one-time-code"
-                             x-bind:required="recovery" />
+                    <x-input type="text" name="recovery_code" autocomplete="one-time-code" />
                 </x-field>
             </div>
 
@@ -22,9 +26,9 @@
             </button>
         </form>
 
-        <button type="button" @click="recovery = ! recovery" class="w-full text-center text-sm text-slate-500 hover:text-slate-900">
-            <span x-show="! recovery">Use a recovery code instead</span>
-            <span x-show="recovery" x-cloak>Use an authentication code instead</span>
+        <button type="button" data-toggle="recovery"
+                class="w-full text-center text-sm text-slate-500 hover:text-slate-900">
+            Use a recovery code instead
         </button>
     </div>
 </x-layouts.guest>

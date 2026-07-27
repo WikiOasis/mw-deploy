@@ -20,6 +20,7 @@ use App\Services\Git\NullGitRefProvider;
 use App\Services\Git\SaltGitRefProvider;
 use App\Services\Salt\Contracts\SaltClient;
 use App\Services\Salt\ProcessSaltClient;
+use App\Support\PathResolver;
 use App\Support\Permissions;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -38,6 +39,13 @@ final class MwDeployServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(SaltClient::class, ProcessSaltClient::class);
+
+        // PathResolver deliberately takes no dependency on the container so it can
+        // be unit-tested on its own; the configured config directory is handed to
+        // it here instead.
+        $this->app->bind(PathResolver::class, fn (): PathResolver => new PathResolver(
+            (string) config('mwdeploy.paths.config_dir', 'config'),
+        ));
 
         $this->app->bind(GitRefProvider::class, function (): GitRefProvider {
             return match ((string) config('mwdeploy.git.driver', 'salt')) {

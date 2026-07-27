@@ -255,20 +255,49 @@ php artisan db:seed --force                       # roles + permissions, idempot
 php artisan mwdeploy:create-user you@wikioasis.org --role=admin
 ```
 
+If the farm already has MediaWiki on disk — which it does, unless this is a brand
+new farm — fill the registry in from the tree rather than by hand. This needs the
+shim installed on the staging host and nothing else; it is read-only:
+
+```bash
+php artisan mwdeploy:import-tree                  # what it found, and what it would do
+php artisan mwdeploy:import-tree --apply --as=you@wikioasis.org
+```
+
+Read the dry run before applying it. What it prints is the diff between the tree and
+the registry, and the two rows worth pausing on are:
+
+- **Cannot import** — a directory with no git remote. The portal leaves these alone
+  because it could never update or restore them; if one of them matters, give it a
+  remote (or keep managing it by hand, knowingly).
+- **Update pin** — the tree is on a different ref than the registry pins. Not applied
+  unless you pass `--repin`, because the pin may be the deliberate answer and the
+  tree the thing that is behind.
+
+`--apply` records every checkout it adopts as *already deployed*, pinned to the ref
+it is actually on, and writes nothing to the tree. The first deployment of each one
+is therefore a normal ref change, not a clone over a live directory.
+
 Then in the UI, in this order:
 
 1. **Targets** — add staging, every appserver, every proxy. Hostnames must equal
    Salt minion ids; verify against `salt-key -L`.
-2. **Repositories** — register the current core version first (so
-   `versions/<ver>/` exists), then extensions and skins, then config. Each save
+2. **Import** — if you did not run the command above, do it here: **Repositories →
+   Import from disk**. The scan and the plan are the same ones; the screen just lets
+   you tick rows. Re-run it any time; it is the only way to see drift between the
+   registry and the tree.
+3. **Repositories** — for anything the tree does *not* have yet. Register the core
+   version first (so `versions/<ver>/` exists), then extensions and skins. Each save
    clones onto staging, so a bad remote fails here rather than during a deploy.
-3. **Patches** — re-register anything currently living in
+4. **Config repository** — **Repositories → Config repository**, paste the git URL.
+   If `config/` is already checked out it is adopted rather than cloned over.
+5. **Patches** — re-register anything currently living in
    `scripts/extensions/patches/`, then hit **Dry run** on each. Patches that only
    applied because of GNU patch's default fuzz factor will fail now, which is the
    point.
-4. **Users** — create accounts and assign roles. Anyone with a deploy permission
+6. **Users** — create accounts and assign roles. Anyone with a deploy permission
    is redirected to `/two-factor/setup` until they enrol TOTP.
-5. A **staging-only** deployment of one small extension, as a smoke test, before
+7. A **staging-only** deployment of one small extension, as a smoke test, before
    anything targets production.
 
 ## Verifying the transport before trusting it
@@ -288,6 +317,10 @@ salt 'proxy-1' cmd.run_all 'mwdeploy-shim haproxy repool --proxy proxy-1 --backe
 
 # 5. Can the wiki → version map be read? (Blocks version removal if not.)
 salt 'staging' cmd.run_all 'mwdeploy-shim wiki-versions --file /srv/mediawiki/config/wikiversions.json'
+
+# 5b. Can the tree be inventoried? (This is what the import screen runs.)
+salt 'staging' cmd.run_all 'mwdeploy-shim tree-scan --root /srv/mediawiki-staging --no-metadata'
+#   → reports every version, extension and skin it can see. Read-only.
 
 # 6. Do the removal guards hold? A dry run deletes nothing.
 salt 'staging' cmd.run_all 'mwdeploy-shim repo-remove --path /srv --root /srv/mediawiki'

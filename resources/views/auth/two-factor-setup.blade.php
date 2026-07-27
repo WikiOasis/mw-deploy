@@ -1,4 +1,4 @@
-<x-layouts.app title="Two-factor authentication">
+<x-layouts.account title="Two-factor authentication">
     <div class="mx-auto max-w-2xl space-y-6">
         @if ($required && ! $enabled)
             <div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -54,17 +54,17 @@
                     enrolling.
                 </p>
 
+                {{-- Fortify serves the QR svg and the secret from their own endpoints
+                     rather than rendering them into the page, so resources/js/auth.js
+                     fetches both into here. --}}
                 <div class="mt-4 rounded-md border border-slate-200 bg-white p-4"
-                     x-data="{ svg: '', secret: '' }"
-                     x-init="
-                        fetch('{{ route('two-factor.qr-code') }}', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
-                            .then(r => r.json()).then(d => svg = d.svg);
-                        fetch('{{ route('two-factor.secret-key') }}', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
-                            .then(r => r.json()).then(d => secret = d.secretKey);
-                     ">
-                    <div x-html="svg" class="[&_svg]:h-40 [&_svg]:w-40"></div>
+                     data-qr-code="{{ route('two-factor.qr-code') }}"
+                     data-secret-key="{{ route('two-factor.secret-key') }}">
+                    <div data-qr-target class="[&_svg]:h-40 [&_svg]:w-40">
+                        <p class="text-xs text-slate-500">Loading the QR code…</p>
+                    </div>
                     <p class="mt-3 text-xs text-slate-500">
-                        Cannot scan? Enter this key manually: <code class="font-mono" x-text="secret"></code>
+                        Cannot scan? Enter this key manually: <code class="font-mono" data-secret-target>…</code>
                     </p>
                 </div>
 
@@ -117,4 +117,4 @@
             </form>
         </x-card>
     </div>
-</x-layouts.app>
+</x-layouts.account>

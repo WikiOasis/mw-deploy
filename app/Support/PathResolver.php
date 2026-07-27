@@ -17,6 +17,16 @@ use App\Enums\RepositoryType;
 final class PathResolver
 {
     /**
+     * @param  string|null  $configDirectory  where the config repository is checked
+     *                                        out, relative to the deploy root. The
+     *                                        container passes the configured value;
+     *                                        null means the conventional "config",
+     *                                        which keeps this class usable without
+     *                                        a booted application.
+     */
+    public function __construct(private readonly ?string $configDirectory = null) {}
+
+    /**
      * Path relative to the MediaWiki root.
      *
      *   core       1.45  → versions/1.45
@@ -28,7 +38,7 @@ final class PathResolver
     public function relativePath(RepositoryType $type, string $name, ?string $coreVersion): string
     {
         if ($type === RepositoryType::Config) {
-            return 'config';
+            return $this->configDirectory();
         }
 
         $version = $coreVersion === null || $coreVersion === ''
@@ -43,6 +53,20 @@ final class PathResolver
         $leaf = ($type->subdirectory() ?? 'extensions').'/'.$this->sanitiseSegment($name);
 
         return $version === null ? $leaf : 'versions/'.$version.'/'.$leaf;
+    }
+
+    /**
+     * Where the config repository is checked out, relative to the deploy root.
+     *
+     * Farms disagree on the name — "config", "mw-config", "wikiconfig" — so it is
+     * configurable, and sanitised for the same reason every other segment is: it
+     * ends up in an `rm -rf` target.
+     */
+    public function configDirectory(): string
+    {
+        $configured = $this->sanitiseSegment((string) ($this->configDirectory ?? 'config'));
+
+        return $configured === '' ? 'config' : $configured;
     }
 
     /**

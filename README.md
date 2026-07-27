@@ -9,17 +9,23 @@ cut down from an orchestrator into `mwdeploy-shim`, a set of atomic,
 single-purpose subcommands the portal invokes one at a time, once per server.
 
 ```
-Browser
-  │
+Browser — Vue 3 single-page app (one shell view, everything else client-routed)
+  │  fetch /api/* — session cookie, CSRF, no API tokens
   ▼
 Laravel (on salt-us-east-021)
   │  MySQL — deploy history, job state, repo/patch registry
   │  queue worker — one RunDeployment job per deployment
-  │  Reverb — live dashboard over Laravel Echo
+  │  Reverb — live deployment view over Laravel Echo, with a poll behind it
   │
   ├─► symfony/process → /usr/bin/salt --out=json --static <minion> cmd.run_all '<mwdeploy-shim …>'
-  └─► git (via the shim, on staging) for branch/commit listings
+  ├─► git (via the shim, on staging) for branch/commit listings
+  └─► mwdeploy-shim tree-scan (read-only) to inventory a farm that already exists
 ```
+
+Sign-in, the TOTP challenge and password resets stay **server-rendered**. Fortify
+owns those flows, and an ops tool whose login page depends on a JavaScript bundle
+having loaded is an ops tool you cannot get into on the day the bundle is what
+broke. Everything behind sign-in is the SPA.
 
 ## What is new relative to `mwdeploy`
 
@@ -34,7 +40,10 @@ Laravel (on salt-us-east-021)
 | Users and permissions | whoever is on the Salt master shell | accounts, roles, 18 permissions, enforced TOTP |
 | Patch consistency | `--patch`/`--patch-target` retyped each time | registry; target path stored on the patch |
 | Repo registration | by hand on disk | form, with a reachability check, then a reviewable clone |
+| Adopting an existing farm | n/a — the CLI *was* the farm's history | `tree-scan` reads the tree and fills the registry in from it |
+| Registering wiki config | edit paths by hand | one field: paste the git URL |
 | Blocking canary prompt | curses `Prompter.input()` | web modal the job polls for |
+| Interface | curses, one terminal at a time | single-page app over a JSON API, live over websockets |
 
 ## The version model
 
@@ -57,6 +66,85 @@ MediaWiki core is modelled the same way: one `mediawiki` repository, whose
 checkouts *are* the `versions/<ver>` trees. Config sits outside the version tree
 and has one unversioned checkout.
 
+## Adopting a farm that already exists
+
+The portal is not usually installed onto an empty disk. A farm that has been
+running for years already has `versions/1.45/extensions/…` checked out, on refs
+somebody chose, from remotes somebody picked — and asking an operator to retype a
+hundred extensions into a form to describe code that is already there is not a
+migration path.
+
+So the portal reads the tree instead. `mwdeploy-shim tree-scan` walks the deploy
+root and reports what it finds:
+
+```
+versions/<ver>                    core, plus MW_VERSION out of includes/Defines.php
+versions/<ver>/extensions/<Name>  extension
+versions/<ver>/skins/<Name>       skin
+extensions/, skins/               unversioned checkouts, for a farm mid-migration
+<config_dir>                      wiki config
+```
+
+For each one it reads, straight off disk and without shelling out to git per
+repository: the remote from `.git/config`, the current branch or detached commit
+from `.git/HEAD` (following the `gitdir:` pointer when `.git` is a file, which it is
+for anything that was ever a submodule), the commit from the loose ref or
+`packed-refs`, and the declared name, version and licence from `extension.json` or
+`skin.json` — so the inventory knows that the directory called `Echo` contains the
+extension *Notifications*. Several hundred checkouts cost one process, not a few
+thousand.
+
+**Import** then diffs that against the registry and shows you the difference, one
+row at a time:
+
+| | |
+|---|---|
+| Register | on disk, nothing in the registry knows about it |
+| Add checkout | the repository is registered, but not in this core version |
+| Adopt | the row says undeployed, but the checkout is right there |
+| Update pin | registered and present, sitting on a different ref than it pins |
+| Update remote | the registered git URL is not the one the checkout came from |
+| Mark undeployed | the registry says present; the tree does not have it |
+| Cannot import | a directory with no git remote — nothing could describe how to deploy it |
+
+The additive rows are ticked by default; the three that rewrite an existing
+decision are not. **Nothing in the import path touches the tree** — no clone, no
+checkout, no rsync, no removal. It writes registry rows describing code that is
+already on disk, which is why an imported checkout is recorded as *already
+deployed*, pinned to the ref it is actually on. Getting that wrong in the other
+direction would make the first deployment of every extension a clone over a live
+tree.
+
+The same thing works before anyone has signed in:
+
+```bash
+php artisan mwdeploy:import-tree                  # show the plan, change nothing
+php artisan mwdeploy:import-tree --apply          # adopt everything additive
+php artisan mwdeploy:import-tree --apply --repin  # also match pins to the tree
+```
+
+Reading the tree is also the only chance to record what it looks like, so every
+scan — including the dry runs nobody applies — updates the *observation* columns on
+each checkout. Those are kept strictly apart from the pin, which is what lets the
+repository screen say "the registry pins REL1_45 but staging is on REL1_44" instead
+of quietly overwriting one with the other. The dashboard counts those disagreements;
+zero is the healthy answer.
+
+### Wiki config, in one field
+
+`mw-config` is the repository every farm has exactly one of, always at the same
+place in the tree, never versioned — so the general form's name, type, version and
+pin questions all have exactly one possible answer. The config screen asks for the
+git URL and works the rest out, including which situation the farm is in:
+
+- the checkout is already on disk → **adopt** it, registry only, no clone over the
+  top of a live config repository;
+- it is not → **register and clone** it onto staging, as an ordinary reviewable,
+  rollbackable deployment.
+
+Where it lives is configurable (`MWDEPLOY_CONFIG_DIR`), because farms disagree:
+`config`, `mw-config` and `wikiconfig` are all in the wild.
+
 ### Creating and removing versions
 
 - **Cut 1.46 from 1.45** — scaffolds `versions/1.46/`, then registers and clones
@@ -77,16 +165,29 @@ and every removal is reversible — see below.
 ```
 app/
   Actions/Deployments/     CreateDeployment, RollbackDeployment
-  Actions/Repositories/    RegisterRepository, RegisterCheckout
+  Actions/Import/          ApplyImport — the only writer of "already deployed" rows
+  Actions/Repositories/    RegisterRepository, RegisterCheckout, RegisterConfigRepository
   Actions/Versions/        CreateVersion (reconstruct), UndeployVersion
   Enums/                   statuses, step names, ref types, decisions
-  Http/                    controllers, form requests, RequireTwoFactor
+  Http/Controllers/Api/    the JSON API the SPA talks to; one controller per screen
+  Http/Resources/          payload shapes, so a field is named once
+  Http/                    form requests, RequireTwoFactor, the SPA shell controller
   Jobs/RunDeployment.php   the queued job; unique per staging tree
   Policies/                who may deploy, roll back, decide, manage
   Services/Deployment/     the orchestrator — runner, rollout pool, decision gate
+  Services/Discovery/      tree scan → import plan; reads the farm, writes nothing
   Services/Git/            branch/commit discovery (salt | local | none)
   Services/Salt/           the only code that touches the fleet
   Support/                 DeploymentOptions, PathResolver, Permissions
+resources/js/
+  app.js, router.js        the SPA entry point and its routes
+  api.js, store.js, live.js  fetch wrapper, session/flash state, Echo + polling
+  components/              shell, panels, the checkout picker, the plan review
+  pages/                   one component per screen
+  auth.js                  a few kB for the server-rendered sign-in pages
+routes/
+  web.php                  the SPA shell and TOTP enrolment
+  api.php                  everything else
 shim/
   mwdeploy_shim.py         install as /usr/local/bin/mwdeploy-shim on every minion
   tests/                   python unittest suite for the shim
@@ -99,6 +200,10 @@ docs/
 The orchestration is worth reading in one sitting, in this order:
 `app/Jobs/RunDeployment.php` → `app/Services/Deployment/DeploymentRunner.php` →
 `ServerPipeline.php` → `RolloutPool.php`.
+
+The adoption path is a shorter read, in this one: `shim/mwdeploy_shim.py`'s
+`cmd_tree_scan` → `app/Services/Discovery/TreeScanner.php` → `ImportPlanner.php` →
+`app/Actions/Import/ApplyImport.php`.
 
 ## Install
 
@@ -116,6 +221,19 @@ php artisan key:generate
 php artisan migrate --force
 php artisan db:seed --force            # roles and permissions (idempotent)
 php artisan mwdeploy:create-user you@wikioasis.org --role=admin
+```
+
+`npm run build` is not optional: the interface is a bundled single-page app, and the
+`@vite` directive fails loudly rather than serving a broken page if the manifest is
+missing. Nothing is fetched from a CDN at runtime — the Salt master is not
+necessarily allowed to reach the internet.
+
+If the farm already has MediaWiki on disk, fill the registry in from it rather than
+by hand:
+
+```bash
+php artisan mwdeploy:import-tree                  # what it found, and what it would do
+php artisan mwdeploy:import-tree --apply --as=you@wikioasis.org
 ```
 
 Then, still in `.env`, point the portal at the fleet:
@@ -157,15 +275,23 @@ the fleet half-updated.
 ## Tests
 
 ```bash
-php artisan test                                       # 127 tests
-python3 -m unittest discover -s shim/tests -t .        # 69 tests
+php artisan test                                       # 158 tests
+python3 -m unittest discover -s shim/tests -t .        # 88 tests
 vendor/bin/pint --test                                 # style
+npm run build                                          # the SPA bundle
 ```
 
-Nothing in either suite shells out to a real `salt`: `FakeSaltClient` records
+Nothing in the PHP suite shells out to a real `salt`: `FakeSaltClient` records
 every call and answers from a queue of canned results, so the orchestration is
 tested against exact call sequences (see
 `tests/Feature/RolloutBehaviourTest::a_happy_path_deployment_runs_the_whole_sequence_in_order`).
+`TreeImportTest` uses the same mechanism to assert the stronger claim about
+importing: that the only Salt call an import makes is the read-only scan.
+
+The shim suite does the opposite — it builds real git repositories in a temporary
+directory and runs the shim as a subprocess, because `tree-scan` is an assertion
+about what git leaves on disk and a hand-written `.git/config` would only prove the
+parser agrees with itself.
 
 ## How a deployment runs
 
@@ -231,3 +357,10 @@ deploy included a migration, a human still has to deal with the schema); owning 
 wiki → version mapping (that lives in mw-config; the portal only reads it to refuse
 an unsafe version removal); and CI-triggered deploys. This is a manual-trigger
 portal replacing a manual-trigger CLI.
+
+Two more that the adoption path invites and does not do. It never **writes** to the
+tree to reconcile it — an import that noticed drift will tell you, and moving the
+tree is still a deployment you review. And it does not scan on a schedule: a scan is
+a deliberate act with a five-minute cache behind it, not a background job quietly
+repinning the registry while nobody is looking. `mwdeploy:import-tree` in cron is
+yours to decide on, and `--repin` is why you should think about it first.

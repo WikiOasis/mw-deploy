@@ -22,7 +22,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'repository_id', 'mediawiki_version_id', 'path',
     'ref_mode', 'tracked_ref_type', 'tracked_ref_value',
-    'status', 'registered_at', 'undeployed_at',
+    'status', 'registered_at', 'undeployed_at', 'discovered_at',
+    'observed_ref_type', 'observed_ref_value', 'observed_commit', 'observed_at',
 ])]
 class RepositoryVersion extends Model
 {
@@ -34,9 +35,12 @@ class RepositoryVersion extends Model
         return [
             'ref_mode' => RefMode::class,
             'tracked_ref_type' => RefType::class,
+            'observed_ref_type' => RefType::class,
             'status' => PresenceStatus::class,
             'registered_at' => 'datetime',
             'undeployed_at' => 'datetime',
+            'discovered_at' => 'datetime',
+            'observed_at' => 'datetime',
         ];
     }
 
@@ -134,6 +138,49 @@ class RepositoryVersion extends Model
             RefMode::DefaultBranch => 'default branch ('.($this->repository?->default_branch ?? '?').')',
             RefMode::Floating => 'chosen each deployment',
         };
+    }
+
+    /**
+     * Whether the ref last seen on disk differs from what this checkout pins.
+     *
+     * Only meaningful when a scan has actually looked: no observation is not the
+     * same as no drift, and reporting it as agreement would be a lie the operator
+     * would act on.
+     */
+    public function hasRefDrift(): bool
+    {
+        if ($this->observed_at === null || $this->observed_ref_value === null) {
+            return false;
+        }
+
+        $pinned = $this->resolvedRefValue();
+
+        if ($pinned === null) {
+            // Floating checkouts have nothing to drift from.
+            return false;
+        }
+
+        // A pinned commit is compared by prefix so an abbreviated pin still
+        // matches the full SHA the scan reports.
+        if ($this->tracked_ref_type === RefType::Commit && $this->observed_commit !== null) {
+            return ! str_starts_with($this->observed_commit, $pinned);
+        }
+
+        return $this->observed_ref_value !== $pinned;
+    }
+
+    /**
+     * What the last scan saw, for display next to the pin.
+     */
+    public function observedSummary(): ?string
+    {
+        if ($this->observed_ref_value === null) {
+            return null;
+        }
+
+        return $this->observed_ref_type === RefType::Commit
+            ? substr($this->observed_ref_value, 0, 12)
+            : $this->observed_ref_value;
     }
 
     public function markUndeployed(): void

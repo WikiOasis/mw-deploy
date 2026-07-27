@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+/* Tailwind scans the Vue components as well as the Blade that is left, or every
+   class the SPA uses would be dropped from the build. */
+@source '../js/**/*.vue';
+@source '../js/**/*.js';
+@source '../views/**/*.blade.php';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
@@ -9,8 +14,10 @@
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 }
 
-/* Alpine's x-cloak hides elements until the component has initialised, which
-   keeps collapsed wizard sections from flashing open on load. */
-[x-cloak] {
-    display: none !important;
-}
+/* Status pill and badge classes come from the server (the enums' badgeClasses()
+   methods) rather than appearing literally in a template, so Tailwind cannot see
+   them when it scans. Listing them here keeps one colour map on the PHP side
+   instead of two that can disagree. */
+@source inline(
+    "bg-{slate,sky,emerald,rose,amber,orange,violet}-{50,100} text-{slate,sky,emerald,rose,amber,orange,violet}-{500,600,700,800,900} ring-{slate,sky,emerald,rose,amber,orange,violet}-300"
+);

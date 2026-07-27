@@ -4,7 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ isset($title) ? $title.' — ' : '' }}{{ config('app.name') }}</title>
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {{-- Deliberately not the SPA bundle: these are the pages you need on the day
+         the application bundle is what broke. --}}
+    @vite(['resources/css/app.css', 'resources/js/auth.js'])
 </head>
 <body class="flex h-full items-center justify-center bg-slate-100 px-4 py-12 text-slate-900 antialiased">
 <div class="w-full max-w-md">

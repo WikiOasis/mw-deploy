@@ -17,12 +17,17 @@ use App\Models\User;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 /**
- * The UI half of "check permissions in both places", plus the wizard's
+ * The API half of "check permissions in both places", plus the wizard's
  * version-aware validation.
+ *
+ * These hit the endpoints the SPA calls. The job re-derives the same answers
+ * through DeploymentAuthorizer, which RolloutBehaviourTest covers — a permission
+ * check that only exists in the UI is a permission check that does not exist.
  */
 final class WizardAndPermissionsTest extends TestCase
 {
@@ -50,8 +55,8 @@ final class WizardAndPermissionsTest extends TestCase
     {
         $reader = $this->userWithPermissions([]);
 
-        $this->actingAs($reader)->get(route('deployments.create'))->assertForbidden();
-        $this->actingAs($reader)->get(route('deployments.undeploy'))->assertForbidden();
+        $this->actingAs($reader)->getJson($this->wizard('deploy'))->assertForbidden();
+        $this->actingAs($reader)->getJson($this->wizard('undeploy'))->assertForbidden();
     }
 
     #[Test]
@@ -64,15 +69,15 @@ final class WizardAndPermissionsTest extends TestCase
             Permissions::DEPLOY_PRODUCTION_SERVERS,
         ]);
 
-        $this->actingAs($deployer)->get(route('deployments.create'))->assertOk();
-        $this->actingAs($deployer)->get(route('deployments.undeploy'))->assertForbidden();
+        $this->actingAs($deployer)->getJson($this->wizard('deploy'))->assertOk();
+        $this->actingAs($deployer)->getJson($this->wizard('undeploy'))->assertForbidden();
 
         $remover = $this->userWithPermissions([
             Permissions::UNDEPLOY_EXTENSION,
             Permissions::DEPLOY_PRODUCTION_SERVERS,
         ]);
 
-        $this->actingAs($remover)->get(route('deployments.undeploy'))->assertOk();
+        $this->actingAs($remover)->getJson($this->wizard('undeploy'))->assertOk();
     }
 
     #[Test]
@@ -81,15 +86,33 @@ final class WizardAndPermissionsTest extends TestCase
         $this->extension('Echo', $this->v45, 'REL1_45');
         $this->extension('Echo', $this->v46, 'REL1_46');
 
-        $response = $this->actingAs($this->deployer())->get(route('deployments.create'));
+        $response = $this->actingAs($this->deployer())->getJson($this->wizard('deploy'));
 
         $response->assertOk();
-        $response->assertSee('Echo');
-        $response->assertSee('1.45');
-        $response->assertSee('1.46');
+
+        $checkouts = collect($response->json('repositories'))
+            ->firstWhere('name', 'Echo')['checkouts'];
+
+        $this->assertSame(['1.46', '1.45'], array_column($checkouts, 'version'));
         // The per-version pins are what make "all versions" do the right thing.
-        $response->assertSee('REL1_45');
-        $response->assertSee('REL1_46');
+        $this->assertSame(['REL1_46', 'REL1_45'], array_column($checkouts, 'resolved_ref'));
+    }
+
+    #[Test]
+    public function the_undeploy_wizard_offers_only_checkouts_that_are_on_disk(): void
+    {
+        $present = $this->extension('Echo', $this->v45);
+
+        RepositoryVersion::factory()
+            ->of($present->repository, $this->v46)
+            ->undeployed()
+            ->create();
+
+        $response = $this->actingAs($this->remover())->getJson($this->wizard('undeploy'));
+
+        $checkouts = collect($response->json('repositories'))->firstWhere('name', 'Echo')['checkouts'];
+
+        $this->assertSame([$present->getKey()], array_column($checkouts, 'id'));
     }
 
     #[Test]
@@ -99,7 +122,7 @@ final class WizardAndPermissionsTest extends TestCase
         $echo46 = $this->extension('Echo', $this->v46, 'REL1_46');
 
         $this->actingAs($this->deployer())
-            ->post(route('deployments.store'), [
+            ->postJson(route('api.deployments.store'), [
                 'intent' => 'deploy',
                 'items' => [
                     ['repository_version_id' => $echo45->getKey(), 'ref_type' => 'branch', 'ref_value' => 'REL1_45'],
@@ -107,7 +130,7 @@ final class WizardAndPermissionsTest extends TestCase
                 ],
                 'parallel' => 1,
             ])
-            ->assertSessionHasNoErrors();
+            ->assertCreated();
 
         $deployment = Deployment::query()->latest('id')->firstOrFail();
 
@@ -126,12 +149,12 @@ final class WizardAndPermissionsTest extends TestCase
         $echo = $this->extension('Echo', $this->v45);
 
         $this->actingAs($this->remover())
-            ->post(route('deployments.store'), [
+            ->postJson(route('api.deployments.store'), [
                 'intent' => 'undeploy',
                 'items' => [['repository_version_id' => $echo->getKey()]],
                 'parallel' => 1,
             ])
-            ->assertSessionHasNoErrors();
+            ->assertCreated();
 
         $deployment = Deployment::query()->latest('id')->firstOrFail();
         $ref = $deployment->repoRefs()->firstOrFail();
@@ -147,12 +170,12 @@ final class WizardAndPermissionsTest extends TestCase
         $echo = $this->extension('Echo', $this->v45);
 
         $this->actingAs($this->remover())
-            ->post(route('deployments.store'), [
+            ->postJson(route('api.deployments.store'), [
                 'intent' => 'undeploy',
                 'items' => [['repository_version_id' => $echo->getKey(), 'ref_value' => 'master']],
                 'parallel' => 1,
             ])
-            ->assertSessionHasErrors('items.0.ref_value');
+            ->assertJsonValidationErrors('items.0.ref_value');
 
         $this->assertSame(0, Deployment::query()->count());
     }
@@ -166,12 +189,12 @@ final class WizardAndPermissionsTest extends TestCase
             ->create();
 
         $this->actingAs($this->remover())
-            ->post(route('deployments.store'), [
+            ->postJson(route('api.deployments.store'), [
                 'intent' => 'undeploy',
                 'items' => [['repository_version_id' => $echo->getKey()]],
                 'parallel' => 1,
             ])
-            ->assertSessionHasErrors('items.0.repository_version_id');
+            ->assertJsonValidationErrors('items.0.repository_version_id');
     }
 
     #[Test]
@@ -180,7 +203,7 @@ final class WizardAndPermissionsTest extends TestCase
         $echo = $this->extension('Echo', $this->v45);
 
         $this->actingAs($this->deployer())
-            ->post(route('deployments.store'), [
+            ->postJson(route('api.deployments.store'), [
                 'intent' => 'undeploy',
                 'items' => [['repository_version_id' => $echo->getKey()]],
                 'parallel' => 1,
@@ -195,14 +218,14 @@ final class WizardAndPermissionsTest extends TestCase
     {
         $echo = $this->extension('Echo', $this->v45);
 
-        $this->actingAs($this->deployer())->post(route('deployments.store'), [
+        $this->actingAs($this->deployer())->postJson(route('api.deployments.store'), [
             'items' => [[
                 'repository_version_id' => $echo->getKey(),
                 'ref_type' => 'branch',
                 'ref_value' => '4a9f2e1bd7c3a1f0e5b2c9d8a7f6e5d4c3b2a1f0',
             ]],
             'parallel' => 1,
-        ]);
+        ])->assertCreated();
 
         $this->assertSame(
             RefType::Commit,
@@ -216,7 +239,7 @@ final class WizardAndPermissionsTest extends TestCase
         $echo = $this->extension('Echo', $this->v45);
 
         $this->actingAs($this->deployer())
-            ->post(route('deployments.store'), [
+            ->postJson(route('api.deployments.store'), [
                 'items' => [[
                     'repository_version_id' => $echo->getKey(),
                     'ref_type' => 'branch',
@@ -224,7 +247,7 @@ final class WizardAndPermissionsTest extends TestCase
                 ]],
                 'parallel' => 1,
             ])
-            ->assertSessionHasErrors('items.0.ref_value');
+            ->assertJsonValidationErrors('items.0.ref_value');
 
         $this->assertSame(0, Deployment::query()->count());
     }
@@ -250,6 +273,11 @@ final class WizardAndPermissionsTest extends TestCase
         $this->assertTrue($user->canUndeployRepository($mine->repository));
         $this->assertFalse($user->canDeployRepository($theirs->repository));
         $this->assertFalse($user->canUndeployRepository($theirs->repository));
+
+        // …and the wizard does not offer what the user may not touch.
+        $response = $this->actingAs($user)->getJson($this->wizard('deploy'));
+
+        $this->assertSame(['Echo'], array_column($response->json('repositories'), 'name'));
     }
 
     #[Test]
@@ -260,16 +288,16 @@ final class WizardAndPermissionsTest extends TestCase
         $payload = [
             'items' => [['repository_version_id' => $echo->getKey(), 'ref_value' => 'master']],
             'parallel' => 1,
-            'force' => '1',
+            'force' => true,
         ];
 
         $this->actingAs($this->deployer())
-            ->post(route('deployments.store'), $payload)
-            ->assertSessionHasErrors('force');
+            ->postJson(route('api.deployments.store'), $payload)
+            ->assertJsonValidationErrors('force');
 
         $this->actingAs($this->admin())
-            ->post(route('deployments.store'), $payload)
-            ->assertSessionHasNoErrors();
+            ->postJson(route('api.deployments.store'), $payload)
+            ->assertCreated();
 
         $this->assertTrue(Deployment::query()->latest('id')->firstOrFail()->opts()->force);
     }
@@ -287,63 +315,92 @@ final class WizardAndPermissionsTest extends TestCase
         ];
 
         $this->actingAs($stagingOnly)
-            ->post(route('deployments.store'), $payload)
-            ->assertSessionHasErrors('staging_only');
+            ->postJson(route('api.deployments.store'), $payload)
+            ->assertJsonValidationErrors('staging_only');
 
         $this->actingAs($stagingOnly)
-            ->post(route('deployments.store'), $payload + ['staging_only' => '1'])
-            ->assertSessionHasNoErrors();
+            ->postJson(route('api.deployments.store'), $payload + ['staging_only' => true])
+            ->assertCreated();
 
         $this->assertTrue(Deployment::query()->latest('id')->firstOrFail()->opts()->stagingOnly);
+
+        // The wizard tells the SPA to fix the toggle on, rather than offering a
+        // choice the server would refuse.
+        $this->actingAs($stagingOnly)
+            ->getJson($this->wizard('deploy'))
+            ->assertJsonPath('defaults.staging_only', true)
+            ->assertJsonPath('can.target_production', false);
     }
 
     #[Test]
-    public function the_review_screen_shows_the_salt_calls_without_creating_anything(): void
+    public function the_plan_endpoint_shows_the_salt_calls_without_creating_anything(): void
     {
         $echo45 = $this->extension('Echo', $this->v45, 'REL1_45');
         $echo46 = $this->extension('Echo', $this->v46, 'REL1_46');
         DeployTarget::factory()->proxy()->create(['hostname' => 'proxy-1']);
 
-        $response = $this->actingAs($this->admin())->post(route('deployments.review'), [
+        $response = $this->actingAs($this->admin())->postJson(route('api.deployments.plan'), [
             'items' => [
                 ['repository_version_id' => $echo45->getKey(), 'ref_value' => 'REL1_45'],
                 ['repository_version_id' => $echo46->getKey(), 'ref_value' => 'REL1_46'],
             ],
             'parallel' => 1,
-            'rollout' => '1',
+            'rollout' => true,
         ]);
 
         $response->assertOk();
-        $response->assertSee('git-checkout');
-        $response->assertSee('versions/1.45/extensions/Echo');
-        $response->assertSee('versions/1.46/extensions/Echo');
-        $response->assertSee('depool');
-        $response->assertSee('mw-01');
+
+        $commands = $this->commandsIn($response);
+
+        $this->assertStringContainsString('git-checkout', $commands);
+        $this->assertStringContainsString('versions/1.45/extensions/Echo', $commands);
+        $this->assertStringContainsString('versions/1.46/extensions/Echo', $commands);
+        $this->assertStringContainsString('depool', $commands);
+        $this->assertStringContainsString('mw-01', $commands);
 
         $this->assertSame(0, Deployment::query()->count());
         Queue::assertNothingPushed();
     }
 
     #[Test]
-    public function the_undeploy_review_screen_shows_the_literal_removal_commands(): void
+    public function the_undeploy_plan_shows_the_literal_removal_commands(): void
     {
         $echo = $this->extension('Echo', $this->v45);
 
-        $response = $this->actingAs($this->admin())->post(route('deployments.review'), [
+        $response = $this->actingAs($this->admin())->postJson(route('api.deployments.plan'), [
             'intent' => 'undeploy',
             'items' => [['repository_version_id' => $echo->getKey()]],
             'parallel' => 1,
         ]);
 
         $response->assertOk();
-        // An operator about to delete a directory off the fleet should see the
-        // path and the root guard, not a euphemism.
-        $response->assertSee('repo-remove');
-        $response->assertSee('--root');
-        $response->assertSee('versions/1.45/extensions/Echo');
-        $response->assertSee('Remove them');
+        $response->assertJsonPath('removes_anything', true);
+
+        $commands = $this->commandsIn($response);
+
+        // An operator about to delete a directory off the fleet should see the path
+        // and the root guard, not a euphemism.
+        $this->assertStringContainsString('repo-remove', $commands);
+        $this->assertStringContainsString('--root', $commands);
+        $this->assertStringContainsString('versions/1.45/extensions/Echo', $commands);
         // Never the version-root escape hatch for a per-checkout removal.
-        $response->assertDontSee('allow-version-root');
+        $this->assertStringNotContainsString('allow-version-root', $commands);
+    }
+
+    #[Test]
+    public function the_plan_lists_registered_patches_that_were_not_selected(): void
+    {
+        $echo = $this->extension('Echo', $this->v45);
+        $patch = $this->patchFor($echo);
+
+        $response = $this->actingAs($this->admin())->postJson(route('api.deployments.plan'), [
+            'items' => [['repository_version_id' => $echo->getKey(), 'ref_value' => 'REL1_45']],
+            'parallel' => 1,
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('unselected_patches.0.id', $patch->getKey());
+        $response->assertJsonCount(0, 'patches');
     }
 
     #[Test]
@@ -354,11 +411,11 @@ final class WizardAndPermissionsTest extends TestCase
         $echo = $this->extension('Echo', $this->v45);
 
         $this->actingAs($this->admin())
-            ->post(route('deployments.store'), [
+            ->postJson(route('api.deployments.store'), [
                 'items' => [['repository_version_id' => $echo->getKey(), 'ref_value' => 'master']],
                 'parallel' => 99,
             ])
-            ->assertSessionHasErrors('parallel');
+            ->assertJsonValidationErrors('parallel');
     }
 
     #[Test]
@@ -367,7 +424,7 @@ final class WizardAndPermissionsTest extends TestCase
         $this->core($this->v45);
 
         $this->actingAs($this->deployer())
-            ->post(route('versions.store'), ['version' => '1.47', 'core_ref' => 'REL1_47'])
+            ->postJson(route('api.versions.store'), ['version' => '1.47', 'core_ref' => 'REL1_47'])
             ->assertForbidden();
 
         $this->assertSame(2, MediaWikiVersion::query()->count());
@@ -379,14 +436,14 @@ final class WizardAndPermissionsTest extends TestCase
         $this->core($this->v45);
 
         $this->actingAs($this->admin())
-            ->post(route('versions.undeploy', $this->v45), ['confirm_version' => '1.46'])
-            ->assertSessionHasErrors('confirm_version');
+            ->postJson(route('api.versions.undeploy', $this->v45), ['confirm_version' => '1.46'])
+            ->assertJsonValidationErrors('confirm_version');
 
         $this->assertSame(0, Deployment::query()->count());
 
         $this->actingAs($this->admin())
-            ->post(route('versions.undeploy', $this->v45), ['confirm_version' => '1.45'])
-            ->assertSessionHasNoErrors();
+            ->postJson(route('api.versions.undeploy', $this->v45), ['confirm_version' => '1.45'])
+            ->assertCreated();
 
         $this->assertSame(DeploymentIntent::VersionUndeploy, Deployment::query()->latest('id')->firstOrFail()->intent);
     }
@@ -397,8 +454,25 @@ final class WizardAndPermissionsTest extends TestCase
         $this->core($this->v45);
 
         $this->actingAs($this->remover())
-            ->post(route('versions.undeploy', $this->v45), ['confirm_version' => '1.45'])
+            ->postJson(route('api.versions.undeploy', $this->v45), ['confirm_version' => '1.45'])
             ->assertForbidden();
+    }
+
+    private function wizard(string $intent): string
+    {
+        return route('api.deployments.wizard', ['intent' => $intent]);
+    }
+
+    /**
+     * Every planned command line, flattened, so a test can assert on the sequence
+     * the operator would be shown.
+     */
+    private function commandsIn(TestResponse $response): string
+    {
+        return collect($response->json('phases'))
+            ->flatten(1)
+            ->pluck('command')
+            ->implode("\n");
     }
 
     /**
