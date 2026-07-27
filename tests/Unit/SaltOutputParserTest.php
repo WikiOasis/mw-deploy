@@ -132,6 +132,41 @@ final class SaltOutputParserTest extends TestCase
     }
 
     #[Test]
+    public function a_salt_cli_that_never_started_is_reported_against_the_portal_host(): void
+    {
+        // Exit 64 with a Python traceback cannot have come from a minion: a minion's
+        // output arrives inside the JSON envelope, not instead of it. Blaming the
+        // fleet for this wastes the first ten minutes of an incident.
+        $stderr = <<<'TXT'
+        Usage: salt [options] '<target>' <function> [arguments]
+
+        salt: error: Error while processing <function LogLevelMixIn.__setup_logfile_logger_config>:
+        Traceback (most recent call last):
+          File "/opt/saltstack/salt/lib/python3.14/site-packages/salt/utils/parsers.py", line 864, in __setup_logfile_logger_config
+            os.makedirs(user_salt_dir, 0o750)
+        PermissionError: [Errno 13] Permission denied: '/var/www/.salt'
+        TXT;
+
+        $result = $this->parser->parse('staging', '', $stderr, 64);
+
+        $this->assertFalse($result->ok);
+        $this->assertStringContainsString('local salt CLI refused to run', (string) $result->error);
+        $this->assertStringContainsString('nothing was sent to any minion', (string) $result->error);
+        // …and the one trap everybody hits gets told how to fix it.
+        $this->assertStringContainsString('MWDEPLOY_SALT_HOME', (string) $result->error);
+    }
+
+    #[Test]
+    public function a_usage_error_without_the_home_problem_gets_no_misleading_hint(): void
+    {
+        $result = $this->parser->parse('staging', '', "Usage: salt [options] '<target>' <function>\n", 64);
+
+        $this->assertFalse($result->ok);
+        $this->assertStringContainsString('local salt CLI refused to run', (string) $result->error);
+        $this->assertStringNotContainsString('MWDEPLOY_SALT_HOME', (string) $result->error);
+    }
+
+    #[Test]
     public function a_missing_entry_for_the_requested_minion_is_a_failure(): void
     {
         // Two minions came back but neither is the one we targeted: this is a

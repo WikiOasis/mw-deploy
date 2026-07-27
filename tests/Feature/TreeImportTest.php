@@ -376,11 +376,38 @@ final class TreeImportTest extends TestCase
     {
         $this->salt->respondTo(StepName::TreeScan, false);
 
-        $this->actingAs($this->admin())
+        $response = $this->actingAs($this->admin())
             ->getJson(route('api.import.show', ['fresh' => 1]))
             ->assertStatus(422)
             ->assertJsonPath('ok', false)
             ->assertJsonStructure(['error', 'hint']);
+
+        // The shim on staging is the default suspect for a scan that reached it.
+        $this->assertStringContainsString('tree-scan', $response->json('hint'));
+        $this->assertStringContainsString((string) config('mwdeploy.targets.staging'), $response->json('hint'));
+    }
+
+    #[Test]
+    public function a_salt_cli_that_never_ran_points_at_the_portal_host_not_at_staging(): void
+    {
+        /*
+         * The salt CLI creates `~/.salt` while parsing its arguments, so run as a
+         * user with an unwritable home it exits 64 before contacting anything. That
+         * is a problem on the portal host, and telling the operator to go and check
+         * the shim on staging sends them to the wrong machine.
+         */
+        $this->salt->respondTo(StepName::TreeScan, false, payload: [
+            'error' => 'The local salt CLI refused to run (exit 64), so nothing was sent to any minion: '
+                ."PermissionError: [Errno 13] Permission denied: '/var/www/.salt'",
+        ]);
+
+        $hint = $this->actingAs($this->admin())
+            ->getJson(route('api.import.show', ['fresh' => 1]))
+            ->assertStatus(422)
+            ->json('hint');
+
+        $this->assertStringContainsString('failed on the portal host', $hint);
+        $this->assertStringNotContainsString('tree-scan', $hint);
     }
 
     #[Test]

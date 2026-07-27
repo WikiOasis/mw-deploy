@@ -374,6 +374,7 @@ These are the ones only you can fill in, from the facts gathered in section 0:
 | `MWDEPLOY_GIT_DRIVER` | `salt` | `local` only if the master *is* the staging host |
 | `MWDEPLOY_WIKIVERSIONS_PATH` | **fact 12** | read on the staging host to refuse removing a version wikis still use |
 | `MWDEPLOY_CONFIG_DIR` | `config` | where mw-config is checked out, relative to the deploy root |
+| `MWDEPLOY_SALT_HOME` | `storage/framework/salt` | HOME for the salt subprocess; the CLI creates `~/.salt` and dies if it cannot. Leave unset, or point it at a directory www-data owns |
 | `MWDEPLOY_SCAN_ROOT` | `staging` | which tree the import screen inventories: `staging` or `production` |
 | `MWDEPLOY_REQUIRE_WIKIVERSION_CHECK` | `true` | leave it on; see the warning below |
 | `MWDEPLOY_DECISION_TIMEOUT` | `900` | how long a canary prompt waits for a human |

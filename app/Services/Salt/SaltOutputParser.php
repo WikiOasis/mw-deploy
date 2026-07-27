@@ -180,7 +180,47 @@ final class SaltOutputParser
             return "salt exited {$exitCode} with no output.";
         }
 
+        // Distinguish "the local CLI never ran" from "the minion misbehaved". Both
+        // arrive here as unparseable output, and conflating them sends whoever is
+        // holding the pager to the wrong host.
+        if ($this->looksLikeLocalCliFailure($detail, $exitCode)) {
+            return 'The local salt CLI refused to run (exit '.$exitCode.'), so nothing was sent to any minion: '
+                .$this->truncate($detail).$this->localCliHint($detail);
+        }
+
         return "Could not parse salt --out=json output (exit {$exitCode}): ".$this->truncate($detail);
+    }
+
+    /**
+     * Whether salt failed on *this* host, before reaching the fleet.
+     *
+     * Exit 64 is Salt's argument-parsing failure, and a Python traceback on stderr
+     * cannot have come from a minion — the minion's output arrives inside the JSON
+     * envelope, not instead of it.
+     */
+    private function looksLikeLocalCliFailure(string $detail, int $exitCode): bool
+    {
+        return $exitCode === 64
+            || str_contains($detail, 'Usage: salt')
+            || str_contains($detail, 'salt: error:')
+            || str_contains($detail, 'Traceback (most recent call last)');
+    }
+
+    /**
+     * One specific trap gets a specific answer, because it is the one everybody
+     * hits: the salt CLI creates `~/.salt` while parsing its arguments, and
+     * php-fpm's HOME is whatever the passwd entry says — /var/www for www-data,
+     * which is usually root-owned.
+     */
+    private function localCliHint(string $detail): string
+    {
+        if (! str_contains($detail, '.salt') || ! str_contains($detail, 'Permission denied')) {
+            return '';
+        }
+
+        return ' — salt could not create its own state directory under the web user'."'"
+            .'s home. Point MWDEPLOY_SALT_HOME at a directory that user owns '
+            .'(it defaults to storage/framework/salt), or give the user a writable HOME.';
     }
 
     private function fallbackError(string $stdout, string $stderr, ?int $retcode): string

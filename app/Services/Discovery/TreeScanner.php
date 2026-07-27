@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Discovery;
 
 use App\Services\Salt\Contracts\SaltClient;
+use App\Services\Salt\SaltResult;
 use App\Services\Salt\ShimCalls;
 use Illuminate\Support\Facades\Cache;
 
@@ -54,18 +55,21 @@ final class TreeScanner
         $result = $this->salt->run($this->calls->treeScan($root, $versions));
 
         if (! $result->ok) {
-            throw new ScanFailed(sprintf(
-                'Could not scan %s on %s: %s',
-                $root,
-                $this->calls->stagingTarget(),
-                $result->detail(),
-            ));
+            throw new ScanFailed(
+                sprintf(
+                    'Could not scan %s on %s: %s',
+                    $root,
+                    $this->calls->stagingTarget(),
+                    $result->detail(),
+                ),
+                $this->hintFor($result),
+            );
         }
 
         if ($result->payload === null) {
             throw new ScanFailed(
-                'The scan returned no JSON. Is '.config('mwdeploy.shim.binary').' installed on '
-                .$this->calls->stagingTarget().' and new enough to have tree-scan?'
+                'The scan returned no JSON from '.$this->calls->stagingTarget().'.',
+                $this->shimHint(),
             );
         }
 
@@ -74,6 +78,37 @@ final class TreeScanner
         Cache::put($key, $scan, self::CACHE_TTL_SECONDS);
 
         return $scan;
+    }
+
+    /**
+     * Which host to go and look at.
+     *
+     * A scan crosses two machines, and the failure modes look alike from the
+     * outside: a salt CLI that would not start on the portal host produces the same
+     * "no usable output" as a shim that is missing on staging. Saying "check the
+     * shim on staging" when the portal's own CLI never ran wastes the first ten
+     * minutes of an incident.
+     */
+    private function hintFor(SaltResult $result): string
+    {
+        $detail = $result->detail();
+
+        $localFailure = $result->retcode === 64
+            || str_contains($detail, 'The local salt CLI refused to run')
+            || str_contains($detail, 'Could not start [');
+
+        if ($localFailure) {
+            return 'This failed on the portal host, not on '.$this->calls->stagingTarget()
+                .' — the local '.config('mwdeploy.salt.binary').' did not run. Nothing was sent to the fleet.';
+        }
+
+        return $this->shimHint();
+    }
+
+    private function shimHint(): string
+    {
+        return 'The scan runs `'.config('mwdeploy.shim.binary').' tree-scan` on '
+            .$this->calls->stagingTarget().'. Check that the shim is installed there and is at least version 2.1.0.';
     }
 
     public function forget(): void
