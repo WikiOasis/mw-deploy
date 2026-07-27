@@ -70,7 +70,7 @@ return [
             // out of each. It is all local file I/O with no subprocesses, but the
             // tree can be large and NFS-backed, so it gets more room than the
             // other read-only steps.
-            'tree-scan' => 300,
+            'tree-scan' => 1200,
             'repo-register' => 900,
             'repo-remove' => 300,
             'version-scaffold' => 120,
