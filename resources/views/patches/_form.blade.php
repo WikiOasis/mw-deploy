@@ -13,13 +13,14 @@
               class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300">{{ old('description', $patch->description ?? '') }}</textarea>
 </x-field>
 
-<x-field label="Target repository" name="target_repo_id"
-         hint="Leave blank for a freeform patch. Setting this pre-selects the patch on any deployment touching that repo.">
-    <select name="target_repo_id" class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300">
+<x-field label="Target checkout" name="target_repository_version_id"
+         hint="A patch is written against the files as they exist in one core version, so the target is a specific checkout. Leave blank for a freeform patch.">
+    <select name="target_repository_version_id" class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300">
         <option value="">— freeform —</option>
-        @foreach ($repositories as $repository)
-            <option value="{{ $repository->id }}" @selected((int) old('target_repo_id', $patch->target_repo_id ?? 0) === $repository->id)>
-                {{ $repository->displayName() }} ({{ $repository->type->label() }})
+        @foreach ($checkouts as $checkout)
+            <option value="{{ $checkout->getKey() }}"
+                    @selected((int) old('target_repository_version_id', $patch->target_repository_version_id ?? 0) === $checkout->getKey())>
+                {{ $checkout->displayName() }} ({{ $checkout->repository?->type->label() }})
             </option>
         @endforeach
     </select>

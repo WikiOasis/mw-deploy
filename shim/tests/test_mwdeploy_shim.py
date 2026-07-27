@@ -563,6 +563,279 @@ class CanaryTest(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
 
 
+class RepoRemoveGuardTest(unittest.TestCase):
+    """The guards on the most destructive operation in the system.
+
+    Every one of these is a path that must never be deleted. They are tested at
+    the shim rather than only in the portal because this is where `rm -rf`
+    actually happens, and a bug upstream must not be able to reach it.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self._tmp.name)
+
+        self.root = self.base / "srv" / "mediawiki"
+        (self.root / "versions" / "1.45" / "extensions" / "Echo").mkdir(parents=True)
+        (self.root / "versions" / "1.45" / "skins" / "Vector").mkdir(parents=True)
+        (self.root / "config").mkdir(parents=True)
+        (self.root / "versions" / "1.45" / "extensions" / "Echo" / "Echo.php").write_text("<?php\n")
+
+        # A sibling that merely shares a name prefix with the root.
+        self.sibling = self.base / "srv" / "mediawiki-old"
+        self.sibling.mkdir(parents=True)
+        (self.sibling / "keep.txt").write_text("important\n")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def remove(self, path, root=None, *extra):
+        return run_shim("repo-remove", "--path", str(path), "--root", str(root or self.root), *extra)
+
+    def test_it_refuses_the_deploy_root_itself(self):
+        code, payload, _ = self.remove(self.root)
+
+        self.assertEqual(1, code)
+        self.assertIn("deploy root itself", payload["error"])
+        self.assertTrue(self.root.is_dir())
+
+    def test_it_refuses_the_filesystem_root(self):
+        code, payload, _ = self.remove("/", root="/")
+
+        self.assertEqual(1, code)
+        self.assertIn("refusing to operate on /", payload["error"])
+
+    def test_it_refuses_the_versions_directory(self):
+        # Deleting this removes every core version at once.
+        code, payload, _ = self.remove(self.root / "versions")
+
+        self.assertEqual(1, code)
+        self.assertIn("versions directory itself", payload["error"])
+        self.assertTrue((self.root / "versions").is_dir())
+
+    def test_it_refuses_a_whole_core_version_without_the_explicit_flag(self):
+        code, payload, _ = self.remove(self.root / "versions" / "1.45")
+
+        self.assertEqual(1, code)
+        self.assertIn("--allow-version-root", payload["error"])
+        self.assertTrue((self.root / "versions" / "1.45").is_dir())
+
+    def test_it_refuses_a_path_outside_the_root(self):
+        code, payload, _ = self.remove("/etc/passwd")
+
+        self.assertEqual(1, code)
+        self.assertIn("outside the deploy root", payload["error"])
+
+    def test_it_refuses_a_sibling_that_shares_a_name_prefix(self):
+        # A naive startswith() check would let /srv/mediawiki-old through a
+        # /srv/mediawiki root.
+        code, payload, _ = self.remove(self.sibling)
+
+        self.assertEqual(1, code)
+        self.assertIn("outside the deploy root", payload["error"])
+        self.assertTrue((self.sibling / "keep.txt").exists())
+
+    def test_it_refuses_a_relative_path(self):
+        code, payload, _ = self.remove("versions/1.45/extensions/Echo")
+
+        self.assertEqual(1, code)
+        self.assertIn("must be absolute", payload["error"])
+
+    def test_it_refuses_a_dotdot_escape(self):
+        code, payload, _ = self.remove(str(self.root) + "/versions/1.45/../../../etc")
+
+        self.assertEqual(1, code)
+        self.assertIn("'..'", payload["error"])
+
+    def test_it_refuses_without_a_root(self):
+        code, payload, _ = run_shim(
+            "repo-remove", "--path", str(self.root / "config"), "--root", ""
+        )
+
+        self.assertEqual(1, code)
+        self.assertIn("--root is required", payload["error"])
+
+    def test_it_refuses_a_symlink_pointing_outside_the_root(self):
+        link = self.root / "versions" / "1.45" / "extensions" / "Escape"
+        link.symlink_to(self.sibling)
+
+        code, payload, _ = self.remove(link)
+
+        self.assertEqual(1, code)
+        self.assertIn("outside the deploy root", payload["error"])
+        self.assertTrue((self.sibling / "keep.txt").exists())
+
+    def test_it_refuses_a_file(self):
+        code, payload, _ = self.remove(self.root / "versions" / "1.45" / "extensions" / "Echo" / "Echo.php")
+
+        self.assertEqual(1, code)
+        self.assertIn("not a directory", payload["error"])
+
+
+class RepoRemoveTest(unittest.TestCase):
+    """The removals that must succeed."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name) / "srv" / "mediawiki"
+        self.echo = self.root / "versions" / "1.45" / "extensions" / "Echo"
+        self.echo.mkdir(parents=True)
+        (self.echo / "Echo.php").write_text("<?php\n")
+        (self.root / "config").mkdir(parents=True)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def remove(self, path, *extra):
+        return run_shim("repo-remove", "--path", str(path), "--root", str(self.root), *extra)
+
+    def test_a_dry_run_reports_without_deleting(self):
+        code, payload, _ = self.remove(self.echo, "--check")
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["checked"])
+        self.assertFalse(payload["removed"])
+        self.assertTrue(self.echo.is_dir())
+
+    def test_it_removes_an_extension_checkout(self):
+        code, payload, _ = self.remove(self.echo)
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["removed"])
+        self.assertFalse(self.echo.exists())
+        # The parent tree is left intact — only the checkout goes.
+        self.assertTrue((self.root / "versions" / "1.45" / "extensions").is_dir())
+
+    def test_removing_an_absent_checkout_succeeds(self):
+        # The portal runs this once per server; a retry, or a server provisioned
+        # after the checkout was already gone, must not fail the deployment.
+        self.remove(self.echo)
+        code, payload, _ = self.remove(self.echo)
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["removed"])
+        self.assertIn("already absent", payload["detail"])
+
+    def test_it_removes_the_unversioned_config_checkout(self):
+        code, _, _ = self.remove(self.root / "config")
+
+        self.assertEqual(0, code)
+        self.assertFalse((self.root / "config").exists())
+
+    def test_it_removes_a_whole_core_version_with_the_explicit_flag(self):
+        version = self.root / "versions" / "1.45"
+
+        code, payload, _ = self.remove(version, "--allow-version-root")
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["removed"])
+        self.assertFalse(version.exists())
+        # The versions/ parent must survive: other versions live there.
+        self.assertTrue((self.root / "versions").is_dir())
+
+
+class VersionScaffoldTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_it_creates_the_version_tree(self):
+        target = self.root / "srv" / "mediawiki-staging" / "versions" / "1.46"
+
+        code, payload, _ = run_shim(
+            "version-scaffold", "--path", str(target), "--version", "1.46"
+        )
+
+        self.assertEqual(0, code)
+        for subdirectory in ("extensions", "skins", "cache"):
+            self.assertTrue((target / subdirectory).is_dir(), subdirectory)
+        self.assertEqual("1.46", payload["version"])
+
+    def test_it_is_idempotent(self):
+        target = self.root / "versions" / "1.46"
+
+        run_shim("version-scaffold", "--path", str(target), "--version", "1.46")
+        code, payload, _ = run_shim("version-scaffold", "--path", str(target), "--version", "1.46")
+
+        self.assertEqual(0, code)
+        self.assertEqual([], payload["created"])
+
+
+class WikiVersionsTest(unittest.TestCase):
+    """Reading the wiki → version map, so undeploying a live version is refused."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def write(self, content: str) -> Path:
+        path = self.root / "wikiversions.json"
+        path.write_text(content)
+
+        return path
+
+    def test_it_reads_plain_string_values(self):
+        path = self.write('{"metawiki": "1.45", "testwiki": "1.46"}')
+
+        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
+
+        self.assertEqual(0, code)
+        self.assertEqual(["metawiki"], payload["versions"]["1.45"])
+        self.assertEqual(["testwiki"], payload["versions"]["1.46"])
+
+    def test_it_tolerates_the_php_prefix_wikimedia_writes(self):
+        path = self.write('{"enwiki": "php-1.45"}')
+
+        _, payload, _ = run_shim("wiki-versions", "--file", str(path))
+
+        self.assertEqual(["enwiki"], payload["versions"]["1.45"])
+
+    def test_it_reads_nested_object_values(self):
+        path = self.write('{"enwiki": {"version": "1.45", "other": true}}')
+
+        _, payload, _ = run_shim("wiki-versions", "--file", str(path))
+
+        self.assertEqual(["enwiki"], payload["versions"]["1.45"])
+
+    def test_it_refuses_a_shape_it_does_not_understand(self):
+        # Guessing here would mean deleting a version that is still serving.
+        path = self.write('{"brokenwiki": 42}')
+
+        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
+
+        self.assertEqual(1, code)
+        self.assertIn("brokenwiki", payload["error"])
+
+    def test_it_refuses_a_non_object_document(self):
+        path = self.write('["1.45"]')
+
+        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
+
+        self.assertEqual(1, code)
+        self.assertIn("not a JSON object", payload["error"])
+
+    def test_it_refuses_invalid_json(self):
+        path = self.write("{not json")
+
+        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
+
+        self.assertEqual(1, code)
+        self.assertIn("could not read", payload["error"])
+
+    def test_a_missing_map_is_a_failure_not_an_empty_answer(self):
+        code, payload, _ = run_shim("wiki-versions", "--file", str(self.root / "nope.json"))
+
+        self.assertEqual(1, code)
+        self.assertIn("not found", payload["error"])
+
+
 class L10nRebuildTest(unittest.TestCase):
     def test_a_missing_mediawiki_tree_fails_rather_than_reporting_success(self):
         code, payload, _ = run_shim(

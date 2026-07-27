@@ -14,6 +14,7 @@ use App\Http\Controllers\RepositoryBrowserController;
 use App\Http\Controllers\RepositoryRegistryController;
 use App\Http\Controllers\TwoFactorSetupController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\VersionController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth')->group(function (): void {
@@ -30,13 +31,22 @@ Route::middleware('auth')->group(function (): void {
     Route::post('repositories', [RepositoryRegistryController::class, 'store'])->name('repositories.store');
 
     Route::get('repositories/{repository}', [RepositoryBrowserController::class, 'show'])->name('repositories.show');
-    Route::get('repositories/{repository}/refs', [RepositoryBrowserController::class, 'refs'])->name('repositories.refs');
+    Route::get('checkouts/{checkout}/refs', [RepositoryBrowserController::class, 'refs'])->name('checkouts.refs');
     Route::get('repositories/{repository}/edit', [RepositoryRegistryController::class, 'edit'])->name('repositories.edit');
     Route::put('repositories/{repository}', [RepositoryRegistryController::class, 'update'])->name('repositories.update');
     Route::delete('repositories/{repository}', [RepositoryRegistryController::class, 'destroy'])->name('repositories.destroy');
 
-    // 4.2 — new deployment wizard.
+    // MediaWiki core versions.
+    Route::get('versions', [VersionController::class, 'index'])->name('versions.index');
+    Route::post('versions', [VersionController::class, 'store'])->name('versions.store');
+    Route::get('versions/{version}', [VersionController::class, 'show'])->name('versions.show');
+    Route::post('versions/{version}/undeploy', [VersionController::class, 'undeploy'])->name('versions.undeploy');
+
+    // Deployment wizards. Undeploy is a separate screen, not a mode toggle:
+    // removing checkouts off the whole fleet should not be one mis-click away
+    // from updating them.
     Route::get('deployments/new', [DeploymentWizardController::class, 'create'])->name('deployments.create');
+    Route::get('deployments/undeploy', [DeploymentWizardController::class, 'createUndeploy'])->name('deployments.undeploy');
     Route::post('deployments/review', [DeploymentWizardController::class, 'review'])->name('deployments.review');
     Route::post('deployments', [DeploymentWizardController::class, 'store'])->name('deployments.store');
 

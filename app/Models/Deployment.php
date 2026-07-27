@@ -6,7 +6,9 @@ namespace App\Models;
 
 use App\Enums\DecisionReason;
 use App\Enums\DeploymentDecision;
+use App\Enums\DeploymentIntent;
 use App\Enums\DeploymentStatus;
+use App\Enums\RepoAction;
 use App\Enums\StepStatus;
 use App\Support\DeploymentOptions;
 use Database\Factories\DeploymentFactory;
@@ -18,7 +20,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 
 #[Fillable([
-    'created_by', 'status', 'options', 'rolls_back_deployment_id',
+    'created_by', 'status', 'intent', 'options', 'mediawiki_version_id',
+    'rolls_back_deployment_id',
     'pending_decision', 'pending_decision_context', 'pending_decision_requested_at',
     'decision_response', 'decision_by', 'decision_answered_at',
     'failure_reason', 'started_at', 'finished_at',
@@ -32,6 +35,7 @@ class Deployment extends Model
     {
         return [
             'status' => DeploymentStatus::class,
+            'intent' => DeploymentIntent::class,
             'options' => 'array',
             'pending_decision' => DecisionReason::class,
             'pending_decision_context' => 'array',
@@ -51,6 +55,11 @@ class Deployment extends Model
     public function decidedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'decision_by');
+    }
+
+    public function mediawikiVersion(): BelongsTo
+    {
+        return $this->belongsTo(MediaWikiVersion::class, 'mediawiki_version_id');
     }
 
     public function rollsBack(): BelongsTo
@@ -93,6 +102,26 @@ class Deployment extends Model
         return $this->rolls_back_deployment_id !== null;
     }
 
+    /**
+     * Whether this deployment removes anything. Drives the confirmation copy and
+     * the permission check, and is derived from the refs rather than the intent
+     * so a mislabelled intent cannot smuggle a removal through.
+     */
+    public function removesAnything(): bool
+    {
+        return $this->repoRefs->contains(
+            fn (DeploymentRepoRef $ref) => $ref->action === RepoAction::Undeploy
+        );
+    }
+
+    /**
+     * @return Collection<int, DeploymentRepoRef>
+     */
+    public function refsFor(RepoAction $action): Collection
+    {
+        return $this->repoRefs->filter(fn (DeploymentRepoRef $ref) => $ref->action === $action)->values();
+    }
+
     public function awaitingDecision(): bool
     {
         return $this->pending_decision !== null && $this->decision_response === null;
@@ -122,8 +151,8 @@ class Deployment extends Model
 
     /**
      * Hostnames this deployment actually started work on. Used to scope a
-     * rollback to servers that were touched — servers the failed deployment
-     * never reached are still on the previous ref and were never at risk.
+     * rollback to servers that were touched — servers the failed deployment never
+     * reached are still on the previous ref and were never at risk.
      *
      * @return list<string>
      */
@@ -138,5 +167,25 @@ class Deployment extends Model
             ->pluck('target_hostname')
             ->values()
             ->all();
+    }
+
+    /**
+     * Short description for history rows.
+     */
+    public function summary(): string
+    {
+        if ($this->isRollback()) {
+            return 'Rollback of #'.$this->rolls_back_deployment_id;
+        }
+
+        if ($this->intent === DeploymentIntent::VersionCreate) {
+            return 'Created '.($this->mediawikiVersion?->version ?? 'a core version');
+        }
+
+        if ($this->intent === DeploymentIntent::VersionUndeploy) {
+            return 'Undeployed '.($this->mediawikiVersion?->version ?? 'a core version');
+        }
+
+        return $this->repoRefs->map(fn (DeploymentRepoRef $ref) => $ref->summary())->implode(', ') ?: '—';
     }
 }

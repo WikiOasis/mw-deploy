@@ -44,7 +44,11 @@ return [
             'git-pull' => 300,
             'git-head' => 60,
             'git-refs' => 120,
+            'git-remote-check' => 120,
             'repo-register' => 900,
+            'repo-remove' => 300,
+            'version-scaffold' => 120,
+            'wiki-versions' => 60,
             'patch-apply' => 120,
             'rsync-local' => 1800,
             'rsync-remote' => 1800,
@@ -79,6 +83,37 @@ return [
         // Where patch files land on the staging host so the shim can reach
         // them. Laravel writes uploads here via the 'patches' filesystem disk.
         'patches' => env('MWDEPLOY_PATCH_PATH', '/srv/mediawiki/scripts/extensions/patches'),
+
+        /*
+         * The wiki → core version map, owned by the config repo rather than by
+         * this app. Read only to refuse undeploying a version that wikis are
+         * still pointed at.
+         *
+         * If the farm keeps this somewhere else, or in a shape the shim does not
+         * recognise, undeploying a version fails closed with a parse error rather
+         * than proceeding on a guess — see 'versions.require_wiki_version_check'.
+         */
+        'wiki_versions' => env('MWDEPLOY_WIKIVERSIONS_PATH', '/srv/mediawiki/config/wikiversions.json'),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Version lifecycle
+    |---------------------------------------------------------------------------
+    */
+
+    'versions' => [
+        /*
+         * Refuse to undeploy a core version unless the wiki version map could be
+         * read *and* shows no wiki using it.
+         *
+         * Leave this on. Turning it off means an operator's judgement is the only
+         * thing standing between a typo and deleting the version every wiki is
+         * running on. It exists as a knob only because a farm whose map lives
+         * somewhere the shim cannot read would otherwise be unable to undeploy a
+         * version at all.
+         */
+        'require_wiki_version_check' => (bool) env('MWDEPLOY_REQUIRE_WIKIVERSION_CHECK', true),
     ],
 
     /*

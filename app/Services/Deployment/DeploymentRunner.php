@@ -7,8 +7,11 @@ namespace App\Services\Deployment;
 use App\Actions\Deployments\RollbackDeployment;
 use App\Enums\DecisionReason;
 use App\Enums\DeploymentDecision;
+use App\Enums\DeploymentIntent;
 use App\Enums\DeploymentStatus;
+use App\Enums\PresenceStatus;
 use App\Enums\RefType;
+use App\Enums\RepoAction;
 use App\Enums\StepStatus;
 use App\Enums\TargetRole;
 use App\Events\DeploymentProgressed;
@@ -17,6 +20,7 @@ use App\Models\DeploymentRepoRef;
 use App\Models\DeploymentStep;
 use App\Models\DeployTarget;
 use App\Models\Patch;
+use App\Models\RepositoryVersion;
 use App\Services\Salt\Contracts\SaltClient;
 use App\Services\Salt\SaltCall;
 use App\Services\Salt\ShimCalls;
@@ -26,9 +30,12 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * The orchestration from section 5 of the handoff spec. Laravel is the brain
- * here: it sequences, retries, aborts and records. Salt is a dumb remote-exec
- * transport, one call per step per server.
+ * The orchestrator. Laravel is the brain here: it sequences, retries, aborts and
+ * records. Salt is a dumb remote-exec transport, one call per step per server.
+ *
+ * Every intent — deploy, undeploy, create a core version, remove a core version,
+ * roll any of those back — runs through this one pipeline. What differs between
+ * them is the line items in deployment_repo_refs, not the control flow.
  */
 final class DeploymentRunner
 {
@@ -36,7 +43,7 @@ final class DeploymentRunner
 
     private DeploymentOptions $options;
 
-    /** True once at least one staging checkout has changed a working tree. */
+    /** True once anything on staging has actually changed. */
     private bool $stagingMutated = false;
 
     public function __construct(
@@ -52,7 +59,12 @@ final class DeploymentRunner
         $this->options = $deployment->opts();
         $this->stagingMutated = false;
 
-        $deployment->loadMissing(['repoRefs.repository', 'deploymentPatches.patch']);
+        $deployment->loadMissing([
+            'repoRefs.repositoryVersion.repository',
+            'repoRefs.repositoryVersion.mediawikiVersion',
+            'deploymentPatches.patch',
+            'mediawikiVersion',
+        ]);
 
         $this->markRunning($deployment);
 
@@ -74,60 +86,222 @@ final class DeploymentRunner
     {
         $refs = $deployment->repoRefs;
 
-        // 2. Record the undo point, then check out the requested refs.
-        if (! $this->snapshotAndCheckout($deployment, $refs)) {
+        // Removing a whole core version is guarded on the farm's own wiki → version
+        // map, before anything is touched.
+        if (! $this->guardVersionUndeploy($deployment)) {
             return;
         }
 
-        // 3. Patches, in registry order, against the freshly-checked-out tree.
+        // Record the undo point for every line item, before anything mutates.
+        foreach ($refs as $ref) {
+            $this->snapshot($deployment, $ref);
+        }
+
+        // A brand new core version needs its directory tree before anything can
+        // be cloned into it.
+        if (! $this->scaffoldVersion($deployment)) {
+            return;
+        }
+
+        $removals = $this->removalPlanFor($deployment);
+        $syncPlan = $this->calls->syncPlanFor($refs);
+
+        // Removals on staging, then the checkouts that are being deployed.
+        if (! $this->applyStagingRemovals($deployment, $removals)) {
+            return;
+        }
+
+        if (! $this->applyCheckouts($deployment, $refs)) {
+            return;
+        }
+
         if (! $this->applyPatches($deployment)) {
             return;
         }
 
-        $syncPaths = $this->calls->requiresFullTreeSync($refs, $this->options)
-            ? []
-            : $this->calls->relativePathsFor($refs);
-
-        // 4. Staging → production on the staging host.
-        if (! $this->runStagingStep($deployment, $this->calls->rsyncLocal($syncPaths))) {
+        if ($syncPlan->required && ! $this->runStagingStep($deployment, $this->calls->rsyncLocal($syncPlan))) {
             return;
         }
 
-        // 5. l10n cache rebuild on staging.
         if ($this->options->l10n
             && ! $this->runStagingStep($deployment, $this->calls->l10nRebuild($this->calls->stagingTarget()))) {
             return;
         }
 
-        // 6. Staging canary — the gate that blocks the fleet rollout.
+        // The staging canary gates the fleet rollout.
         if (! $this->stagingCanary($deployment)) {
             return;
         }
 
-        // 7. Per-server rollout.
         if ($this->options->stagingOnly) {
+            $this->commitPresence($deployment);
             $this->finish($deployment, DeploymentStatus::Done, null);
 
             return;
         }
 
-        $this->rollout($deployment, $syncPaths);
+        $this->rollout($deployment, $syncPlan, $removals);
     }
 
     /**
-     * @param  Collection<int, DeploymentRepoRef>  $refs
+     * Undeploying a core version is refused while wikis still point at it.
+     *
+     * Fails closed: if the map cannot be read or is in a shape the shim does not
+     * recognise, that is a refusal rather than a shrug, because the alternative is
+     * deleting the version every wiki is running on. The check can be turned off
+     * for a farm whose map lives somewhere unreachable.
      */
-    private function snapshotAndCheckout(Deployment $deployment, Collection $refs): bool
+    private function guardVersionUndeploy(Deployment $deployment): bool
     {
-        // Read every HEAD first, before anything mutates staging: a snapshot
-        // taken after the first checkout would record the new state as the undo
-        // point for the repos that follow.
-        foreach ($refs as $ref) {
-            $this->snapshot($deployment, $ref);
+        if ($deployment->intent !== DeploymentIntent::VersionUndeploy) {
+            return true;
         }
 
-        foreach ($refs as $ref) {
-            $call = $this->calls->gitCheckout($ref);
+        $version = $deployment->mediawikiVersion;
+
+        if ($version === null) {
+            $this->finish($deployment, DeploymentStatus::Failed, 'No core version was recorded on this deployment.');
+
+            return false;
+        }
+
+        if (! config('mwdeploy.versions.require_wiki_version_check', true)) {
+            return true;
+        }
+
+        $call = $this->calls->wikiVersions();
+        $step = $this->recorder->begin($call);
+        $result = $this->salt->run($call);
+        $this->recorder->finish($step, $result);
+
+        if (! $result->ok) {
+            $this->finish(
+                $deployment,
+                DeploymentStatus::Failed,
+                'Could not read the wiki version map, so removing '.$version->version
+                .' was refused: '.$result->detail(),
+            );
+
+            return false;
+        }
+
+        $inUse = $result->payloadValue('versions', []);
+        $wikis = is_array($inUse) ? ($inUse[$version->version] ?? []) : [];
+
+        if (is_array($wikis) && $wikis !== []) {
+            $this->finish(
+                $deployment,
+                DeploymentStatus::Failed,
+                sprintf(
+                    'Refused: %d wiki(s) still run on %s (%s). Move them to another version first.',
+                    count($wikis),
+                    $version->version,
+                    implode(', ', array_slice($wikis, 0, 10)).(count($wikis) > 10 ? ', …' : ''),
+                ),
+            );
+
+            return false;
+        }
+
+        $this->recorder->note($step, 'no wikis point at '.$version->version.'; removal may proceed');
+
+        return true;
+    }
+
+    private function scaffoldVersion(Deployment $deployment): bool
+    {
+        if ($deployment->intent !== DeploymentIntent::VersionCreate || $deployment->mediawikiVersion === null) {
+            return true;
+        }
+
+        return $this->runStagingStep($deployment, $this->calls->versionScaffold($deployment->mediawikiVersion));
+    }
+
+    /**
+     * Read the checkout's current state on staging and store it as this
+     * deployment's undo point.
+     *
+     * Presence is recorded alongside the ref, which is what makes rollback
+     * symmetric: undoing an undeploy, undoing a newly added extension and undoing
+     * a plain ref change all fall out of the same three columns.
+     */
+    private function snapshot(Deployment $deployment, DeploymentRepoRef $ref): void
+    {
+        $checkout = $ref->repositoryVersion;
+
+        if ($checkout === null) {
+            return;
+        }
+
+        $wasPresent = $checkout->isPresent();
+        $previousType = null;
+        $previousValue = null;
+
+        if ($wasPresent) {
+            $call = $this->calls->gitHead($checkout);
+            $step = $this->recorder->begin($call);
+            $result = $this->salt->run($call);
+            $this->recorder->finish($step, $result);
+
+            if ($result->ok) {
+                $value = $result->payloadValue('ref');
+                $type = $result->payloadValue('ref_type');
+
+                $previousValue = is_string($value) && $value !== '' ? $value : null;
+                $previousType = is_string($type)
+                    ? (RefType::tryFrom($type)?->value ?? RefType::Commit->value)
+                    : ($previousValue === null ? null : RefType::detect($previousValue)->value);
+            } else {
+                // The registry says it is on disk but staging disagrees. Record
+                // that honestly rather than inventing a ref: rollback will skip
+                // this checkout and say so.
+                $this->recorder->note(
+                    $step,
+                    'no undo point recorded for '.$checkout->displayName().'; rollback will skip it',
+                );
+            }
+        }
+
+        $isUndeploy = $ref->action === RepoAction::Undeploy;
+
+        $deployment->snapshots()->updateOrCreate(
+            ['repository_version_id' => $checkout->getKey()],
+            [
+                'previous_present' => $wasPresent,
+                'previous_ref_type' => $previousType,
+                'previous_ref_value' => $previousValue,
+                'new_present' => ! $isUndeploy,
+                'new_ref_type' => $isUndeploy ? null : $ref->ref_type?->value,
+                'new_ref_value' => $isUndeploy ? null : $ref->ref_value,
+            ],
+        );
+    }
+
+    private function removalPlanFor(Deployment $deployment): RemovalPlan
+    {
+        // A whole-version removal is one rm per host, not one per checkout inside
+        // it. The per-checkout snapshots are still recorded above.
+        if ($deployment->intent === DeploymentIntent::VersionUndeploy && $deployment->mediawikiVersion !== null) {
+            return new RemovalPlan($this->calls, [], $deployment->mediawikiVersion);
+        }
+
+        $checkouts = $deployment->repoRefs
+            ->filter(fn (DeploymentRepoRef $ref) => $ref->action === RepoAction::Undeploy)
+            ->map(fn (DeploymentRepoRef $ref) => $ref->repositoryVersion)
+            ->filter()
+            ->values()
+            ->all();
+
+        return new RemovalPlan($this->calls, $checkouts);
+    }
+
+    private function applyStagingRemovals(Deployment $deployment, RemovalPlan $removals): bool
+    {
+        if ($removals->isEmpty()) {
+            return true;
+        }
+
+        foreach ($removals->stagingCalls() as $call) {
             $step = $this->recorder->begin($call);
             $result = $this->salt->run($call);
             $this->recorder->finish($step, $result);
@@ -138,18 +312,13 @@ final class DeploymentRunner
                 continue;
             }
 
-            // --force covers a failed checkout too: the operator has said they
-            // want the deploy to proceed on whatever is on disk.
             if ($this->options->force) {
                 $this->recorder->note($step, 'continuing despite failure because --force is set');
 
                 continue;
             }
 
-            $this->abort(
-                $deployment,
-                sprintf('git checkout failed for %s: %s', $ref->repository->displayName(), $result->detail()),
-            );
+            $this->abort($deployment, 'removal failed on staging: '.$result->detail());
 
             return false;
         }
@@ -158,37 +327,81 @@ final class DeploymentRunner
     }
 
     /**
-     * Read the repo's current HEAD on staging and store it as this deployment's
-     * undo point.
+     * @param  Collection<int, DeploymentRepoRef>  $refs
      */
-    private function snapshot(Deployment $deployment, DeploymentRepoRef $ref): void
+    private function applyCheckouts(Deployment $deployment, Collection $refs): bool
     {
-        $call = $this->calls->gitHead($ref->repository);
+        foreach ($refs as $ref) {
+            if ($ref->action === RepoAction::Undeploy) {
+                continue;
+            }
+
+            $checkout = $ref->repositoryVersion;
+
+            if ($checkout === null || $ref->ref_value === null) {
+                continue;
+            }
+
+            // Not on disk: clone it first. This is the path taken by a new
+            // version's extensions, a newly registered repository, and undoing an
+            // undeploy — all of which are the same operation.
+            if (! $checkout->isPresent() && ! $this->cloneCheckout($deployment, $checkout)) {
+                return false;
+            }
+
+            $call = $this->calls->gitCheckout($checkout, $ref->ref_value);
+            $step = $this->recorder->begin($call);
+            $result = $this->salt->run($call);
+            $this->recorder->finish($step, $result);
+
+            if ($result->ok) {
+                $this->stagingMutated = true;
+
+                continue;
+            }
+
+            if ($this->options->force) {
+                $this->recorder->note($step, 'continuing despite failure because --force is set');
+
+                continue;
+            }
+
+            $this->abort(
+                $deployment,
+                sprintf('git checkout failed for %s: %s', $checkout->displayName(), $result->detail()),
+            );
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private function cloneCheckout(Deployment $deployment, RepositoryVersion $checkout): bool
+    {
+        $call = $this->calls->repoRegister($checkout);
         $step = $this->recorder->begin($call);
         $result = $this->salt->run($call);
         $this->recorder->finish($step, $result);
 
-        $previousValue = $result->ok ? $result->payloadValue('ref') : null;
-        $previousType = $result->ok ? $result->payloadValue('ref_type') : null;
+        if ($result->ok) {
+            $this->stagingMutated = true;
 
-        if (! $result->ok) {
-            $this->recorder->note(
-                $step,
-                'no undo point recorded for '.$ref->repository->displayName().'; rollback will skip this repo',
-            );
+            return true;
         }
 
-        $deployment->snapshots()->updateOrCreate(
-            ['repository_id' => $ref->repository_id],
-            [
-                'previous_ref_type' => is_string($previousType)
-                    ? (RefType::tryFrom($previousType)?->value ?? RefType::Commit->value)
-                    : (is_string($previousValue) ? RefType::detect($previousValue)->value : null),
-                'previous_ref_value' => is_string($previousValue) && $previousValue !== '' ? $previousValue : null,
-                'new_ref_type' => $ref->ref_type->value,
-                'new_ref_value' => $ref->ref_value,
-            ],
+        if ($this->options->force) {
+            $this->recorder->note($step, 'continuing despite failure because --force is set');
+
+            return true;
+        }
+
+        $this->abort(
+            $deployment,
+            sprintf('could not clone %s onto staging: %s', $checkout->displayName(), $result->detail()),
         );
+
+        return false;
     }
 
     private function applyPatches(Deployment $deployment): bool
@@ -215,8 +428,8 @@ final class DeploymentRunner
                 continue;
             }
 
-            // A patch written against an older commit failing to apply is a
-            // normal step failure, not a special case.
+            // A patch written against an older commit failing to apply is a normal
+            // step failure, not a special case.
             $this->abort($deployment, sprintf('patch "%s" failed to apply: %s', $patch->name, $result->detail()));
 
             return false;
@@ -227,12 +440,12 @@ final class DeploymentRunner
 
     private function refAppliedAgainst(Deployment $deployment, Patch $patch): ?string
     {
-        if ($patch->target_repo_id === null) {
+        if ($patch->target_repository_version_id === null) {
             return null;
         }
 
         return $deployment->repoRefs
-            ->firstWhere('repository_id', $patch->target_repo_id)
+            ->firstWhere('repository_version_id', $patch->target_repository_version_id)
             ?->ref_value;
     }
 
@@ -258,9 +471,9 @@ final class DeploymentRunner
     }
 
     /**
-     * Step 6. On failure without --force this blocks on an operator decision,
-     * exactly as the curses Prompter did, and defaults to abort-and-roll-back if
-     * nobody answers.
+     * On failure without --force this blocks on an operator decision, exactly as
+     * the curses Prompter did, and defaults to abort-and-roll-back if nobody
+     * answers.
      */
     private function stagingCanary(Deployment $deployment): bool
     {
@@ -301,12 +514,9 @@ final class DeploymentRunner
         return false;
     }
 
-    /**
-     * @param  list<string>  $syncPaths
-     */
-    private function rollout(Deployment $deployment, array $syncPaths): void
+    private function rollout(Deployment $deployment, SyncPlan $syncPlan, RemovalPlan $removals): void
     {
-        $servers = $this->appservers($deployment);
+        $servers = $this->appservers();
 
         if ($servers->isEmpty()) {
             $this->finish($deployment, DeploymentStatus::Failed, 'No active appservers matched this deployment.');
@@ -323,7 +533,8 @@ final class DeploymentRunner
             servers: $servers,
             proxies: $this->proxies(),
             options: $this->options,
-            syncPaths: $syncPaths,
+            syncPlan: $syncPlan,
+            removals: $removals,
         );
 
         $results = $pool->run();
@@ -342,22 +553,70 @@ final class DeploymentRunner
         }
 
         if ($failed !== []) {
-            $this->finish(
-                $deployment,
-                DeploymentStatus::Failed,
-                'Rollout failed on: '.implode(', ', $failed),
-            );
+            $this->finish($deployment, DeploymentStatus::Failed, 'Rollout failed on: '.implode(', ', $failed));
 
             return;
         }
 
+        $this->commitPresence($deployment);
         $this->finish($deployment, DeploymentStatus::Done, null);
+    }
+
+    /**
+     * Reconcile the registry with what is now on disk.
+     *
+     * Deliberately only on success: a deployment that failed halfway has left the
+     * fleet in a state the registry cannot describe, and claiming otherwise would
+     * make the next rollback wrong.
+     */
+    private function commitPresence(Deployment $deployment): void
+    {
+        foreach ($deployment->repoRefs as $ref) {
+            $checkout = $ref->repositoryVersion;
+
+            if ($checkout === null) {
+                continue;
+            }
+
+            $ref->action === RepoAction::Undeploy
+                ? $checkout->markUndeployed()
+                : $checkout->markPresent();
+        }
+
+        $version = $deployment->mediawikiVersion;
+
+        if ($version === null) {
+            return;
+        }
+
+        if ($deployment->intent === DeploymentIntent::VersionUndeploy) {
+            // Every checkout inside the version went with the directory, whether
+            // or not it had its own line item.
+            $version->checkouts()->update([
+                'status' => PresenceStatus::Undeployed->value,
+                'undeployed_at' => now(),
+            ]);
+
+            $version->forceFill([
+                'status' => PresenceStatus::Undeployed->value,
+                'undeployed_at' => now(),
+            ])->save();
+
+            return;
+        }
+
+        if ($deployment->intent === DeploymentIntent::VersionCreate) {
+            $version->forceFill([
+                'status' => PresenceStatus::Present->value,
+                'undeployed_at' => null,
+            ])->save();
+        }
     }
 
     /**
      * @return Collection<int, DeployTarget>
      */
-    private function appservers(Deployment $deployment): Collection
+    private function appservers(): Collection
     {
         $query = DeployTarget::query()
             ->active()
@@ -397,9 +656,6 @@ final class DeploymentRunner
         DeploymentProgressed::dispatch($deployment);
     }
 
-    /**
-     * Stop the deployment, optionally enqueueing the automatic rollback.
-     */
     private function abort(
         Deployment $deployment,
         string $reason,
@@ -453,12 +709,7 @@ final class DeploymentRunner
             return;
         }
 
-        if ($this->options->force) {
-            return;
-        }
-
-        // Nothing was changed on staging, so there is nothing to undo.
-        if (! $this->stagingMutated) {
+        if ($this->options->force || ! $this->stagingMutated) {
             return;
         }
 

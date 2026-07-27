@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Enums\DeploymentIntent;
 use App\Enums\DeploymentStatus;
 use App\Models\Deployment;
 use App\Support\DeploymentOptions;
@@ -23,6 +24,7 @@ final class DeploymentFactory extends Factory
     {
         return [
             'status' => DeploymentStatus::Pending->value,
+            'intent' => DeploymentIntent::Deploy->value,
             'options' => (new DeploymentOptions)->toArray(),
         ];
     }
@@ -30,6 +32,11 @@ final class DeploymentFactory extends Factory
     public function withOptions(DeploymentOptions $options): static
     {
         return $this->state(['options' => $options->toArray()]);
+    }
+
+    public function intent(DeploymentIntent $intent): static
+    {
+        return $this->state(['intent' => $intent->value]);
     }
 
     public function status(DeploymentStatus $status): static

@@ -17,7 +17,11 @@ enum StepName: string
     case GitPull = 'git-pull';
     case GitHead = 'git-head';
     case GitRefs = 'git-refs';
+    case GitRemoteCheck = 'git-remote-check';
     case RepoRegister = 'repo-register';
+    case RepoRemove = 'repo-remove';
+    case VersionScaffold = 'version-scaffold';
+    case WikiVersions = 'wiki-versions';
     case PatchApply = 'patch-apply';
     case RsyncLocal = 'rsync-local';
     case RsyncRemote = 'rsync-remote';
@@ -33,7 +37,11 @@ enum StepName: string
             self::GitPull => 'Pull tracked branch',
             self::GitHead => 'Read current HEAD',
             self::GitRefs => 'List branches and commits',
+            self::GitRemoteCheck => 'Check remote is reachable',
             self::RepoRegister => 'Register repository',
+            self::RepoRemove => 'Remove checkout',
+            self::VersionScaffold => 'Scaffold version tree',
+            self::WikiVersions => 'Read wiki version map',
             self::PatchApply => 'Apply patch',
             self::RsyncLocal => 'Rsync staging → production (local)',
             self::RsyncRemote => 'Rsync to appserver',

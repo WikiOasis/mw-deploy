@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Git;
 
-use App\Models\Repository;
+use App\Models\RepositoryVersion;
 use App\Services\Git\Contracts\GitRefProvider;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\Process\Exception\ExceptionInterface;
@@ -25,9 +25,9 @@ final class LocalGitRefProvider implements GitRefProvider
         return is_dir((string) config('mwdeploy.paths.staging'));
     }
 
-    public function branches(Repository $repository): array
+    public function branches(RepositoryVersion $checkout): array
     {
-        $lines = $this->cached($repository, 'branches', fn (): array => $this->git($repository, [
+        $lines = $this->cached($checkout, 'branches', fn (): array => $this->git($checkout, [
             'for-each-ref',
             '--sort=-committerdate',
             // lstrip=3 drops "refs/remotes/origin/", which also turns the
@@ -50,19 +50,19 @@ final class LocalGitRefProvider implements GitRefProvider
                 subject: $subject,
                 author: $author,
                 date: $date,
-                isDefault: $name === $repository->default_branch,
+                isDefault: $name === ($checkout->repository?->default_branch ?? 'master'),
             );
         }
 
-        return $this->defaultFirst($branches, $repository);
+        return $this->defaultFirst($branches, $checkout);
     }
 
-    public function commits(Repository $repository, ?string $branch = null): array
+    public function commits(RepositoryVersion $checkout, ?string $branch = null): array
     {
-        $branch ??= $repository->default_branch;
+        $branch ??= ($checkout->repository?->default_branch ?? 'master');
         $limit = max(1, (int) config('mwdeploy.git.commit_limit', 30));
 
-        $lines = $this->cached($repository, 'commits:'.$branch, fn (): array => $this->git($repository, [
+        $lines = $this->cached($checkout, 'commits:'.$branch, fn (): array => $this->git($checkout, [
             'log',
             '--max-count='.$limit,
             '--format=%H'.self::SEPARATOR.'%s'.self::SEPARATOR.'%an'.self::SEPARATOR.'%aI',
@@ -88,9 +88,9 @@ final class LocalGitRefProvider implements GitRefProvider
      * @param  list<string>  $arguments
      * @return list<string>
      */
-    private function git(Repository $repository, array $arguments): array
+    private function git(RepositoryVersion $checkout, array $arguments): array
     {
-        $path = $repository->stagingPath();
+        $path = $checkout->stagingPath();
 
         if (! is_dir($path.'/.git') && ! is_dir($path)) {
             return [];
@@ -136,11 +136,11 @@ final class LocalGitRefProvider implements GitRefProvider
      * @param  list<GitRef>  $branches
      * @return list<GitRef>
      */
-    private function defaultFirst(array $branches, Repository $repository): array
+    private function defaultFirst(array $branches, RepositoryVersion $checkout): array
     {
-        usort($branches, function (GitRef $a, GitRef $b) use ($repository): int {
-            return ($b->value === $repository->default_branch ? 1 : 0)
-                <=> ($a->value === $repository->default_branch ? 1 : 0);
+        usort($branches, function (GitRef $a, GitRef $b) use ($checkout): int {
+            return ($b->value === ($checkout->repository?->default_branch ?? 'master') ? 1 : 0)
+                <=> ($a->value === ($checkout->repository?->default_branch ?? 'master') ? 1 : 0);
         });
 
         return $branches;
@@ -150,10 +150,10 @@ final class LocalGitRefProvider implements GitRefProvider
      * @param  callable(): list<string>  $resolver
      * @return list<string>
      */
-    private function cached(Repository $repository, string $key, callable $resolver): array
+    private function cached(RepositoryVersion $checkout, string $key, callable $resolver): array
     {
         return Cache::remember(
-            'mwdeploy:refs:local:'.$repository->getKey().':'.$key,
+            'mwdeploy:refs:local:'.$checkout->getKey().':'.$key,
             now()->addSeconds(60),
             $resolver,
         );

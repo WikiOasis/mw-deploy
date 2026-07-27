@@ -1,64 +1,128 @@
 /**
- * Wizard state for the new-deployment form (section 4.2).
+ * Wizard state for the deploy and undeploy forms.
  *
- * Unselected repositories keep their inputs disabled rather than removing them
- * from the DOM, so nothing about a deselected repo reaches the server.
+ * The unit of selection is a *checkout* (one repository in one core version), not
+ * a repository. "All versions" is therefore a bulk toggle over a repository's
+ * checkouts rather than a special mode, and each checkout keeps its own ref — so
+ * 1.45 can deploy REL1_45 while 1.46 deploys REL1_46 in one submission.
+ *
+ * Unselected checkouts keep their inputs disabled rather than removing them from
+ * the DOM, so nothing about a deselected one reaches the server.
  */
-export function deploymentWizard({ refsUrlTemplate, defaultBranches, canTargetProduction }) {
+export function deploymentWizard({
+    refsUrlTemplate,
+    resolvedRefs,
+    checkoutsByRepository,
+    canTargetProduction,
+    undeploy = false,
+}) {
     return {
+        undeploy,
         selected: {},
         commits: {},
         loading: {},
         stagingOnly: !canTargetProduction,
         rollout: false,
         allServers: true,
-        servers: [],
 
-        isSelected(repositoryId) {
-            return Boolean(this.selected[repositoryId]);
+        /** Bulk "apply this ref to everything selected" field. */
+        bulkRef: '',
+
+        isSelected(checkoutId) {
+            return Boolean(this.selected[checkoutId]);
         },
 
-        toggle(repositoryId) {
-            if (this.selected[repositoryId]) {
-                delete this.selected[repositoryId];
+        toggle(checkoutId) {
+            if (this.selected[checkoutId]) {
+                delete this.selected[checkoutId];
 
                 return;
             }
 
-            this.selected[repositoryId] = {
+            this.selected[checkoutId] = {
                 refType: 'branch',
-                refValue: defaultBranches[repositoryId] ?? 'master',
+                // Each checkout's own pin, so a bulk selection does the right
+                // thing per version without the operator retyping anything.
+                refValue: resolvedRefs[checkoutId] ?? '',
             };
         },
 
-        refType(repositoryId) {
-            return this.selected[repositoryId]?.refType ?? 'branch';
+        /** Select or clear every checkout of one repository — "all versions". */
+        toggleRepository(repositoryId) {
+            const ids = checkoutsByRepository[repositoryId] ?? [];
+            const anyMissing = ids.some((id) => !this.selected[id]);
+
+            ids.forEach((id) => {
+                if (anyMissing && !this.selected[id]) {
+                    this.toggle(id);
+                } else if (!anyMissing) {
+                    delete this.selected[id];
+                }
+            });
         },
 
-        setRefType(repositoryId, type) {
-            if (!this.selected[repositoryId]) {
+        repositoryState(repositoryId) {
+            const ids = checkoutsByRepository[repositoryId] ?? [];
+            const chosen = ids.filter((id) => this.selected[id]).length;
+
+            if (chosen === 0) return 'none';
+
+            return chosen === ids.length ? 'all' : 'some';
+        },
+
+        selectedCountFor(repositoryId) {
+            return (checkoutsByRepository[repositoryId] ?? []).filter((id) => this.selected[id]).length;
+        },
+
+        refType(checkoutId) {
+            return this.selected[checkoutId]?.refType ?? 'branch';
+        },
+
+        setRefType(checkoutId, type) {
+            if (!this.selected[checkoutId]) {
                 return;
             }
 
-            this.selected[repositoryId].refType = type;
+            this.selected[checkoutId].refType = type;
 
             if (type === 'commit') {
-                this.selected[repositoryId].refValue = '';
-                this.loadCommits(repositoryId);
+                this.selected[checkoutId].refValue = '';
+                this.loadCommits(checkoutId);
             } else {
-                this.selected[repositoryId].refValue = defaultBranches[repositoryId] ?? 'master';
+                this.selected[checkoutId].refValue = resolvedRefs[checkoutId] ?? '';
             }
         },
 
-        async loadCommits(repositoryId, branch = null) {
-            if (this.commits[repositoryId] && !branch) {
+        /** Apply one ref to every currently selected checkout. */
+        applyRefToSelection(ref) {
+            const value = (ref ?? '').trim();
+
+            if (value === '') {
                 return;
             }
 
-            this.loading[repositoryId] = true;
+            Object.keys(this.selected).forEach((id) => {
+                this.selected[id].refValue = value;
+            });
+        },
+
+        /** Put every selected checkout back on its own pinned ref. */
+        resetToPins() {
+            Object.keys(this.selected).forEach((id) => {
+                this.selected[id].refValue = resolvedRefs[id] ?? '';
+                this.selected[id].refType = 'branch';
+            });
+        },
+
+        async loadCommits(checkoutId, branch = null) {
+            if (this.commits[checkoutId] && !branch) {
+                return;
+            }
+
+            this.loading[checkoutId] = true;
 
             try {
-                const url = new URL(refsUrlTemplate.replace('__ID__', repositoryId), window.location.origin);
+                const url = new URL(refsUrlTemplate.replace('__ID__', checkoutId), window.location.origin);
 
                 if (branch) {
                     url.searchParams.set('branch', branch);
@@ -69,11 +133,11 @@ export function deploymentWizard({ refsUrlTemplate, defaultBranches, canTargetPr
                     credentials: 'same-origin',
                 });
 
-                this.commits[repositoryId] = response.ok ? (await response.json()).commits ?? [] : [];
+                this.commits[checkoutId] = response.ok ? (await response.json()).commits ?? [] : [];
             } catch (error) {
-                this.commits[repositoryId] = [];
+                this.commits[checkoutId] = [];
             } finally {
-                this.loading[repositoryId] = false;
+                this.loading[checkoutId] = false;
             }
         },
 
@@ -82,8 +146,13 @@ export function deploymentWizard({ refsUrlTemplate, defaultBranches, canTargetPr
         },
 
         canSubmit() {
+            if (this.selectedCount() === 0) {
+                return false;
+            }
+
+            // An undeploy collects no refs, so there is nothing else to check.
             return (
-                this.selectedCount() > 0 &&
+                this.undeploy ||
                 Object.values(this.selected).every((entry) => (entry.refValue ?? '').trim().length > 0)
             );
         },

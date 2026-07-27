@@ -24,7 +24,7 @@
                             #{{ $deployment->id }}
                         </a>
                         <span class="text-sm text-slate-500">
-                            {{ $deployment->repoRefs->map(fn ($ref) => $ref->repository?->displayName().' @ '.$ref->shortRef())->implode(', ') ?: 'no refs' }}
+                            {{ Str::limit($deployment->summary(), 90) }}
                         </span>
                         @if ($deployment->awaitingDecision())
                             <span class="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
@@ -59,7 +59,7 @@
                             </span>
                         @else
                             <span class="text-sm text-slate-500">
-                                {{ $deployment->repoRefs->map(fn ($ref) => $ref->repository?->displayName().' @ '.$ref->shortRef())->implode(', ') ?: 'no refs' }}
+                                {{ Str::limit($deployment->summary(), 90) }}
                             </span>
                         @endif
                         <span class="ml-auto text-sm text-slate-400">

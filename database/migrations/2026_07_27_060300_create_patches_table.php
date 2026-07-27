@@ -15,9 +15,14 @@ return new class extends Migration
             $table->string('name');
             $table->text('description')->nullable();
 
-            // Nullable: a patch can be repo-specific or freeform.
-            $table->foreignId('target_repo_id')->nullable()
-                ->constrained('repositories')->nullOnDelete();
+            /*
+             * Nullable: a patch can be freeform. When set it points at a specific
+             * *checkout*, not at the logical repository — a patch is written
+             * against the files as they exist in one core version, and the same
+             * diff rarely applies cleanly across a version boundary.
+             */
+            $table->foreignId('target_repository_version_id')->nullable()
+                ->constrained('repository_versions')->nullOnDelete();
 
             // Directory the patch applies against, relative to the MediaWiki
             // root. Same meaning as --patch-target in the CLI, but stored once

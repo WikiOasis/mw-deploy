@@ -1,5 +1,6 @@
 <x-layouts.app title="Repositories">
-    <x-card title="Repositories" subtitle="Core versions, extensions, skins and config known to the portal.">
+    <x-card title="Repositories"
+            subtitle="One row per logical repository. A repository is checked out once per core version it belongs to.">
         <x-slot:actions>
             @can('create', \App\Models\Repository::class)
                 <a href="{{ route('repositories.create') }}"
@@ -10,18 +11,31 @@
         </x-slot:actions>
 
         <form method="GET" class="mb-5 flex flex-wrap items-end gap-3">
-            <div class="w-64">
+            <div class="w-56">
                 <x-field label="Search" name="q">
                     <x-input name="q" value="{{ $search }}" placeholder="Echo, Vector, mw-config…" />
                 </x-field>
             </div>
 
-            <div class="w-48">
+            <div class="w-44">
                 <x-field label="Type" name="type">
                     <select name="type" class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300">
                         <option value="">All types</option>
                         @foreach ($types as $type)
-                            <option value="{{ $type->value }}" @selected($selectedType === $type)>{{ $type->label() }}</option>
+                            <option value="{{ $type->value }}" @selected($selectedType === $type)>{{ $type->pluralLabel() }}</option>
+                        @endforeach
+                    </select>
+                </x-field>
+            </div>
+
+            <div class="w-40">
+                <x-field label="Deployed in version" name="version">
+                    <select name="version" class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300">
+                        <option value="">Any version</option>
+                        @foreach ($versions as $version)
+                            <option value="{{ $version->getKey() }}" @selected($selectedVersion?->is($version))>
+                                {{ $version->version }}
+                            </option>
                         @endforeach
                     </select>
                 </x-field>
@@ -46,9 +60,8 @@
                         <tr>
                             <th class="py-2 pr-4">Name</th>
                             <th class="py-2 pr-4">Type</th>
-                            <th class="py-2 pr-4">Version</th>
+                            <th class="py-2 pr-4">Deployed in</th>
                             <th class="py-2 pr-4">Default branch</th>
-                            <th class="py-2 pr-4">Staging path</th>
                             <th class="py-2"></th>
                         </tr>
                     </thead>
@@ -67,9 +80,26 @@
                                     @endif
                                 </td>
                                 <td class="py-2 pr-4">{{ $repository->type->label() }}</td>
-                                <td class="py-2 pr-4">{{ $repository->core_version ?? '—' }}</td>
+                                <td class="py-2 pr-4">
+                                    @php
+                                        $present = $repository->versions->where('status', \App\Enums\PresenceStatus::Present);
+                                        $absent = $repository->versions->where('status', \App\Enums\PresenceStatus::Undeployed);
+                                    @endphp
+                                    @forelse ($present as $checkout)
+                                        <span class="mr-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-800">
+                                            {{ $checkout->versionLabel() }}
+                                        </span>
+                                    @empty
+                                        <span class="text-xs text-slate-400">nowhere</span>
+                                    @endforelse
+                                    @foreach ($absent as $checkout)
+                                        <span class="mr-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500"
+                                              title="Registered but not on disk">
+                                            {{ $checkout->versionLabel() }}
+                                        </span>
+                                    @endforeach
+                                </td>
                                 <td class="py-2 pr-4 font-mono text-xs">{{ $repository->default_branch }}</td>
-                                <td class="py-2 pr-4 font-mono text-xs text-slate-500">{{ $repository->path }}</td>
                                 <td class="py-2 text-right">
                                     @can('update', $repository)
                                         <a href="{{ route('repositories.edit', $repository) }}" class="text-slate-500 hover:text-slate-900">Edit</a>

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Models\Deployment;
+use App\Models\MediaWikiVersion;
 use App\Models\Patch;
 use App\Models\Repository;
 use App\Models\User;
 use App\Policies\DeploymentPolicy;
+use App\Policies\MediaWikiVersionPolicy;
 use App\Policies\PatchPolicy;
 use App\Policies\RepositoryPolicy;
 use App\Policies\UserPolicy;
@@ -28,6 +30,7 @@ final class MwDeployServiceProvider extends ServiceProvider
     private const POLICIES = [
         Deployment::class => DeploymentPolicy::class,
         Repository::class => RepositoryPolicy::class,
+        MediaWikiVersion::class => MediaWikiVersionPolicy::class,
         Patch::class => PatchPolicy::class,
         User::class => UserPolicy::class,
     ];
