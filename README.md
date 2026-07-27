@@ -53,6 +53,7 @@ shim/
 docs/
   OPEN-QUESTIONS.md        section 7 of the handoff spec, answered
   OPERATIONS.md            installing and running the portal
+  SALT-INTEGRATION.md      handoff for wiring this into the SaltStack repo
 ```
 
 The orchestration is worth reading in one sitting, in this order:
@@ -95,7 +96,9 @@ install -m 0755 shim/mwdeploy_shim.py /usr/local/bin/mwdeploy-shim
 ```
 
 Full operational detail — systemd units, the rsync daemon, sudo rules, HAProxy
-socket permissions — is in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+socket permissions — is in [`docs/OPERATIONS.md`](docs/OPERATIONS.md). To manage
+all of that from Salt, including the nginx vhost and the HAProxy frontend/backend,
+follow [`docs/SALT-INTEGRATION.md`](docs/SALT-INTEGRATION.md).
 
 ## Running it
 

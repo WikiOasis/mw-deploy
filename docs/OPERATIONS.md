@@ -150,6 +150,24 @@ WantedBy=multi-user.target
 
 Put nginx in front of both: the app on `/`, and a websocket proxy on `/app` and
 `/apps` to `127.0.0.1:8080` with `Upgrade`/`Connection` headers passed through.
+A full vhost, and the HAProxy backend in front of it, are in
+[SALT-INTEGRATION.md](SALT-INTEGRATION.md) sections 7 and 8.
+
+Reverb's env vars split three ways and are not interchangeable:
+
+| Variable | Meaning |
+|---|---|
+| `REVERB_SERVER_HOST` / `REVERB_SERVER_PORT` | where the Reverb process **listens** — keep it on the loopback |
+| `REVERB_HOST` / `REVERB_PORT` / `REVERB_SCHEME` | the **public** URL the browser opens a websocket to |
+| `REVERB_INTERNAL_*` | where **this app** reaches Reverb, server-side |
+
+The last group exists because Laravel's default wires the server-side leg to
+`REVERB_HOST` too, which behind a proxy means dialling out through the edge to
+reach a service on this host's own loopback.
+
+`VITE_REVERB_*` is compiled into the JS bundle by `npm run build`, so changing the
+public URL needs a rebuild — a `config:clear` will not do it, and the symptom is a
+dashboard that quietly falls back to polling.
 
 Reverb is optional. With `BROADCAST_CONNECTION=log` the live dashboard falls back
 to polling `/deployments/{id}/state` every 3 seconds — degraded, but a deploy is
