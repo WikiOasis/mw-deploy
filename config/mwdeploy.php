@@ -37,6 +37,27 @@ return [
             explode(' ', (string) env('MWDEPLOY_SALT_EXTRA_ARGS', ''))
         )),
 
+        /*
+        |-----------------------------------------------------------------------
+        | HOME for the salt subprocess
+        |-----------------------------------------------------------------------
+        |
+        | The salt CLI, run as any non-root user, puts its own log file under
+        | `~/.salt` and *creates that directory* while parsing its arguments. If
+        | $HOME is not writable it exits 64 with a Python traceback about
+        | os.makedirs before it has spoken to a single minion — which reads like a
+        | broken deployment and is actually a broken home directory.
+        |
+        | php-fpm does not set HOME, so the value comes from the passwd entry:
+        | /var/www for www-data, which is usually root-owned. Rather than depend on
+        | the pool config being right, the portal hands the subprocess a directory
+        | it is guaranteed to own.
+        |
+        | Set to an empty string to inherit HOME from the parent process instead.
+        |
+        */
+        'home' => env('MWDEPLOY_SALT_HOME', storage_path('framework/salt')),
+
         // Per-step Salt timeouts in seconds. Keys are step names from
         // App\Enums\StepName.
         'timeouts' => [

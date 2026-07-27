@@ -300,6 +300,44 @@ Then in the UI, in this order:
 7. A **staging-only** deployment of one small extension, as a smoke test, before
    anything targets production.
 
+## The web user's home directory
+
+The `salt` CLI writes its own log file under `~/.salt` and **creates that directory
+while parsing its arguments**. php-fpm does not set `HOME`, so the value comes from
+the passwd entry — `/var/www` for www-data, which is usually root-owned. Run as that
+user, salt dies like this before contacting any minion:
+
+```
+salt: error: Error while processing <function LogLevelMixIn.__setup_logfile_logger_config …>
+PermissionError: [Errno 13] Permission denied: '/var/www/.salt'
+```
+
+Exit 64, no minion involved, and it reads exactly like a broken fleet. Anything the
+portal runs synchronously from a web request hits it first: the import scan, the
+remote reachability check when registering a repository, a patch dry run, a manual
+depool. Queued deployments may keep working, because the worker runs under a
+different unit with its own environment — which makes the failure look stranger than
+it is.
+
+The portal defends itself: it hands the subprocess `HOME=storage/framework/salt`
+(overridable with `MWDEPLOY_SALT_HOME`), which the web user owns by definition. If
+you would rather fix it at the host level, either is fine:
+
+```bash
+# Give the web user a home it owns…
+install -d -o www-data -g www-data -m 0750 /var/lib/mwdeploy
+# …and tell php-fpm and the units about it
+#   php-fpm pool:  env[HOME] = /var/lib/mwdeploy
+#   systemd unit:  Environment=HOME=/var/lib/mwdeploy
+# then set MWDEPLOY_SALT_HOME= (empty) to inherit it.
+
+# …or just let salt have its directory where it already looks
+install -d -o www-data -g www-data -m 0750 /var/www/.salt
+```
+
+Whatever you choose, `storage/` must stay writable by the web user — it already has
+to be, for the framework's caches and the queue.
+
 ## Verifying the transport before trusting it
 
 ```bash

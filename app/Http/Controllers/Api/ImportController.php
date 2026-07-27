@@ -38,8 +38,9 @@ final class ImportController extends Controller
             return response()->json([
                 'ok' => false,
                 'error' => $failure->getMessage(),
-                'hint' => 'The scan runs `mwdeploy-shim tree-scan` on '.config('mwdeploy.targets.staging')
-                    .'. Check that the shim is installed there and is at least version 2.1.0.',
+                // Which host to go and look at — the portal's own salt CLI and the
+                // shim on staging fail in ways that look alike from here.
+                'hint' => $failure->hint(),
             ], 422);
         }
 
@@ -78,7 +79,11 @@ final class ImportController extends Controller
                 fresh: $request->boolean('fresh'),
             );
         } catch (ScanFailed $failure) {
-            return response()->json(['ok' => false, 'error' => $failure->getMessage()], 422);
+            return response()->json([
+                'ok' => false,
+                'error' => $failure->getMessage(),
+                'hint' => $failure->hint(),
+            ], 422);
         }
 
         $plan = $planner->plan($scan);

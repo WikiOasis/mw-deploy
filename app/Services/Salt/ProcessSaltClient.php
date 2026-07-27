@@ -32,7 +32,8 @@ final class ProcessSaltClient implements SaltClient
 
         Log::debug('mwdeploy: salt call', ['target' => $call->target, 'argv' => $argv]);
 
-        $process = new Process($argv);
+        // Only HOME is overridden; everything else is inherited.
+        $process = new Process($argv, env: $this->environment());
 
         // Give the subprocess more room than Salt's own timeout so a Salt-side
         // timeout surfaces as a Salt error rather than as a PHP process kill.
@@ -51,5 +52,39 @@ final class ProcessSaltClient implements SaltClient
         }
 
         return new ProcessPendingSaltCall($call, $process, $this->parser);
+    }
+
+    /**
+     * Environment overrides for the subprocess.
+     *
+     * Just HOME, and only because the salt CLI insists on creating `~/.salt` while
+     * it parses its own arguments: run as a user whose home directory is not
+     * writable — www-data's /var/www, typically — it dies with a PermissionError
+     * traceback and exit 64 before contacting any minion. That failure looks like
+     * "the fleet is broken" and is nothing of the sort, so the portal hands over a
+     * directory it owns rather than trusting the php-fpm pool's environment.
+     *
+     * @return array<string, string>
+     */
+    private function environment(): array
+    {
+        $home = trim((string) config('mwdeploy.salt.home', ''));
+
+        if ($home === '') {
+            return [];
+        }
+
+        if (! is_dir($home) && ! @mkdir($home, 0750, true) && ! is_dir($home)) {
+            // Inherit the parent's HOME instead of pointing salt at somewhere that
+            // does not exist: no better, but no worse either, and the log line is
+            // what actually gets this fixed.
+            Log::warning('mwdeploy: could not create the salt home directory; salt will use the inherited HOME.', [
+                'home' => $home,
+            ]);
+
+            return [];
+        }
+
+        return ['HOME' => $home];
     }
 }
