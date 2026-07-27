@@ -1,0 +1,301 @@
+<script setup>
+import { computed, onMounted, ref } from 'vue';
+import { RouterLink } from 'vue-router';
+
+import { ApiError, api, endpoint } from '../api';
+import CardPanel from '../components/CardPanel.vue';
+import LoadState from '../components/LoadState.vue';
+import StatusBadge from '../components/StatusBadge.vue';
+import { shortRef } from '../format';
+import { flash, flashError, refreshSession, session } from '../store';
+
+/**
+ * Adopting a MediaWiki farm the portal did not build.
+ *
+ * `mwdeploy-shim tree-scan` reads the deploy tree — every versions/<ver>, every
+ * extension and skin inside it, their git remotes and current refs, and each
+ * extension.json — and this screen turns that into registry rows. It is the
+ * difference between installing the portal onto an existing farm and hand-typing a
+ * hundred extensions into a form.
+ *
+ * Nothing here writes to disk. Applying an import creates or updates registry rows
+ * only; the code it describes is already checked out.
+ */
+const plan = ref(null);
+const loading = ref(true);
+const error = ref(null);
+const busy = ref(false);
+const selected = ref(new Set());
+const showInSync = ref(false);
+
+const load = async (fresh = false) => {
+    loading.value = true;
+
+    try {
+        const payload = await api.get(endpoint('import'), { params: fresh ? { fresh: 1 } : {} });
+
+        plan.value = payload.plan;
+        selected.value = new Set(payload.plan.recommended_keys);
+        error.value = null;
+    } catch (thrown) {
+        if (thrown instanceof ApiError) {
+            error.value = thrown;
+            plan.value = null;
+        }
+    } finally {
+        loading.value = false;
+    }
+};
+
+onMounted(() => load());
+
+const entries = computed(() => plan.value?.entries ?? []);
+const actionable = computed(() => entries.value.filter((entry) => entry.actionable));
+const inSync = computed(() => entries.value.filter((entry) => entry.action === 'in_sync'));
+const blocked = computed(() => entries.value.filter((entry) => entry.action === 'unimportable'));
+
+const isSelected = (key) => selected.value.has(key);
+
+const toggle = (key) => {
+    const next = new Set(selected.value);
+
+    next.has(key) ? next.delete(key) : next.add(key);
+    selected.value = next;
+};
+
+const selectAll = () => {
+    selected.value = new Set(actionable.value.map((entry) => entry.key));
+};
+
+const selectRecommended = () => {
+    selected.value = new Set(plan.value.recommended_keys);
+};
+
+const selectNone = () => {
+    selected.value = new Set();
+};
+
+const apply = async () => {
+    busy.value = true;
+
+    try {
+        const payload = await api.post(endpoint('import'), { keys: [...selected.value] });
+
+        flash(payload.message);
+        payload.summary?.slice(0, 12).forEach((line) => flash(line, 'info'));
+
+        await refreshSession();
+        await load(true);
+    } catch (thrown) {
+        flashError(thrown);
+    } finally {
+        busy.value = false;
+    }
+};
+
+const wikiVersionEntries = computed(() => Object.entries(plan.value?.wiki_versions ?? {}));
+</script>
+
+<template>
+    <div class="space-y-4">
+        <header class="flex flex-wrap items-baseline gap-3">
+            <h1 class="text-lg font-semibold tracking-tight">Import from disk</h1>
+            <p class="text-sm text-slate-500">
+                Reads <code class="font-mono">{{ plan?.root ?? session.settings.staging_path }}</code> on
+                <code class="font-mono">{{ session.settings.staging_host }}</code> and fills the registry in from
+                what is actually there.
+            </p>
+            <button
+                type="button"
+                class="ml-auto rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300 disabled:opacity-50"
+                :disabled="loading || busy"
+                @click="load(true)"
+            >
+                Re-scan
+            </button>
+        </header>
+
+        <LoadState :loading="loading" :error="error" @retry="load">
+            <div v-if="plan" class="space-y-4">
+                <div class="grid gap-4 sm:grid-cols-4">
+                    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                        <p class="text-xs tracking-wide text-slate-500 uppercase">On disk</p>
+                        <p class="mt-1 text-2xl font-semibold">
+                            {{ Object.values(plan.scan_counts).reduce((total, count) => total + count, 0) }}
+                        </p>
+                        <p class="text-xs text-slate-500">
+                            {{ plan.versions_on_disk.length }} version(s):
+                            {{ plan.versions_on_disk.join(', ') || 'none' }}
+                        </p>
+                    </div>
+                    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                        <p class="text-xs tracking-wide text-slate-500 uppercase">To import</p>
+                        <p class="mt-1 text-2xl font-semibold">{{ plan.actionable_count }}</p>
+                        <p class="text-xs text-slate-500">{{ selected.size }} selected</p>
+                    </div>
+                    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                        <p class="text-xs tracking-wide text-slate-500 uppercase">Already in sync</p>
+                        <p class="mt-1 text-2xl font-semibold">{{ inSync.length }}</p>
+                    </div>
+                    <div
+                        class="rounded-lg border bg-white p-4 shadow-sm"
+                        :class="blocked.length > 0 ? 'border-rose-200' : 'border-slate-200'"
+                    >
+                        <p class="text-xs tracking-wide text-slate-500 uppercase">Cannot import</p>
+                        <p class="mt-1 text-2xl font-semibold" :class="blocked.length > 0 ? 'text-rose-700' : ''">
+                            {{ blocked.length }}
+                        </p>
+                        <p class="text-xs text-slate-500">no git remote to deploy from</p>
+                    </div>
+                </div>
+
+                <div
+                    v-if="plan.warnings.length > 0"
+                    class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                >
+                    <p class="font-medium">{{ plan.warnings.length }} thing(s) worth a look:</p>
+                    <ul class="mt-1 max-h-40 list-disc space-y-0.5 overflow-auto pl-5 text-xs">
+                        <li v-for="warning in plan.warnings" :key="warning">{{ warning }}</li>
+                    </ul>
+                </div>
+
+                <CardPanel
+                    title="Proposed changes"
+                    subtitle="Registry only — nothing here clones, checks out or removes anything on disk."
+                    flush
+                >
+                    <template #actions>
+                        <button type="button" class="text-slate-600 underline" @click="selectRecommended">
+                            Recommended
+                        </button>
+                        <button type="button" class="text-slate-600 underline" @click="selectAll">All</button>
+                        <button type="button" class="text-slate-600 underline" @click="selectNone">None</button>
+                    </template>
+
+                    <p v-if="actionable.length === 0" class="px-5 py-6 text-sm text-slate-500">
+                        The registry already describes this tree. Nothing to import.
+                    </p>
+
+                    <table v-else class="w-full text-sm">
+                        <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
+                            <tr>
+                                <th class="px-5 py-2"><span class="sr-only">Select</span></th>
+                                <th class="px-5 py-2">Action</th>
+                                <th class="px-5 py-2">What</th>
+                                <th class="px-5 py-2">Ref on disk</th>
+                                <th class="px-5 py-2">Path</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <tr
+                                v-for="entry in actionable"
+                                :key="entry.key"
+                                class="align-top"
+                                :class="isSelected(entry.key) ? 'bg-slate-50' : ''"
+                            >
+                                <td class="px-5 py-2">
+                                    <input
+                                        type="checkbox"
+                                        class="mt-0.5 rounded border-slate-300"
+                                        :checked="isSelected(entry.key)"
+                                        @change="toggle(entry.key)"
+                                    />
+                                </td>
+                                <td class="px-5 py-2">
+                                    <StatusBadge :label="entry.action_label" :classes="entry.badge_classes" />
+                                </td>
+                                <td class="px-5 py-2">
+                                    <p class="font-medium">
+                                        {{ entry.name }}
+                                        <span v-if="entry.version" class="text-slate-500">({{ entry.version }})</span>
+                                    </p>
+                                    <p class="text-xs text-slate-500">{{ entry.summary }}</p>
+                                    <p v-if="entry.manifest_name" class="text-xs text-slate-400">
+                                        extension.json calls this “{{ entry.manifest_name }}”
+                                        <template v-if="entry.manifest?.version">
+                                            v{{ entry.manifest.version }}
+                                        </template>
+                                    </p>
+                                    <p v-if="entry.note" class="mt-1 text-xs text-amber-700">{{ entry.note }}</p>
+                                </td>
+                                <td class="px-5 py-2 font-mono text-xs">
+                                    {{ shortRef(entry.ref) }}
+                                    <span v-if="entry.commit && entry.ref !== entry.commit" class="block text-slate-400">
+                                        {{ shortRef(entry.commit) }}
+                                    </span>
+                                </td>
+                                <td class="px-5 py-2 font-mono text-xs text-slate-500">{{ entry.path }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </CardPanel>
+
+                <div class="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                        :disabled="busy || selected.size === 0"
+                        @click="apply"
+                    >
+                        {{ busy ? 'Importing…' : `Import ${selected.size} change(s)` }}
+                    </button>
+                    <p class="text-xs text-slate-500">
+                        Imported checkouts are recorded as already deployed, pinned to the ref they are on. No
+                        deployment is queued.
+                    </p>
+                </div>
+
+                <div v-if="blocked.length > 0">
+                    <CardPanel
+                        title="Cannot be imported"
+                        subtitle="On disk, but with no git remote — nothing in the registry could describe how to update or restore them."
+                        flush
+                    >
+                        <ul class="divide-y divide-slate-100 text-sm">
+                            <li v-for="entry in blocked" :key="entry.key" class="px-5 py-2">
+                                <p class="font-medium">{{ entry.name }}</p>
+                                <p class="text-xs text-slate-500">{{ entry.summary }}</p>
+                                <code class="font-mono text-xs text-slate-400">{{ entry.path }}</code>
+                            </li>
+                        </ul>
+                    </CardPanel>
+                </div>
+
+                <CardPanel v-if="wikiVersionEntries.length > 0" title="What the wikis are running">
+                    <p class="text-xs text-slate-500">
+                        Read from <code class="font-mono">{{ session.settings.wiki_versions_path }}</code>. The portal
+                        does not own this map — it reads it to refuse undeploying a version wikis still use.
+                    </p>
+                    <ul class="mt-2 space-y-1 text-sm">
+                        <li v-for="[version, wikis] in wikiVersionEntries" :key="version">
+                            <span class="font-medium">{{ version }}</span>
+                            <span class="text-slate-500"> — {{ wikis.length }} wiki(s)</span>
+                        </li>
+                    </ul>
+                </CardPanel>
+
+                <div v-if="inSync.length > 0">
+                    <button type="button" class="text-sm text-slate-600 underline" @click="showInSync = !showInSync">
+                        {{ showInSync ? 'Hide' : 'Show' }} the {{ inSync.length }} checkout(s) already in sync
+                    </button>
+
+                    <CardPanel v-if="showInSync" class="mt-2" flush>
+                        <ul class="divide-y divide-slate-100 text-sm">
+                            <li v-for="entry in inSync" :key="entry.key" class="flex flex-wrap gap-2 px-5 py-1.5">
+                                <span>{{ entry.name }}</span>
+                                <span v-if="entry.version" class="text-slate-500">({{ entry.version }})</span>
+                                <code class="ml-auto font-mono text-xs text-slate-500">{{ shortRef(entry.ref) }}</code>
+                            </li>
+                        </ul>
+                    </CardPanel>
+                </div>
+
+                <p class="text-xs text-slate-500">
+                    Config lives outside the version trees. If the tree has one and it is not registered yet, the
+                    <RouterLink to="/repositories/config" class="underline">config repository screen</RouterLink>
+                    will adopt it in one step.
+                </p>
+            </div>
+        </LoadState>
+    </div>
+</template>

@@ -44,9 +44,21 @@ final class RequireTwoFactor
             return $next($request);
         }
 
+        $message = 'Your account can change production, so two-factor authentication is required before you can continue.';
+
+        // The SPA's API cannot follow a redirect to an HTML enrolment page, so it
+        // is told outright. The client turns this into the same enrolment prompt.
+        if ($request->expectsJson() || $request->is('api/*')) {
+            return response()->json([
+                'message' => $message,
+                'two_factor_required' => true,
+                'enrol_url' => route('two-factor.setup'),
+            ], 403);
+        }
+
         return redirect()
             ->route('two-factor.setup')
-            ->with('status', 'Your account can change production, so two-factor authentication is required before you can continue.');
+            ->with('status', $message);
     }
 
     private function isExempt(Request $request): bool

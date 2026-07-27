@@ -15,7 +15,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 
-#[Fillable(['version', 'status', 'created_from_id', 'created_by', 'sort_order', 'undeployed_at'])]
+#[Fillable([
+    'version', 'status', 'created_from_id', 'created_by', 'sort_order', 'undeployed_at',
+    'discovered_at', 'core_version',
+])]
 class MediaWikiVersion extends Model
 {
     /** @use HasFactory<MediaWikiVersionFactory> */
@@ -32,6 +35,7 @@ class MediaWikiVersion extends Model
         return [
             'status' => PresenceStatus::class,
             'undeployed_at' => 'datetime',
+            'discovered_at' => 'datetime',
         ];
     }
 

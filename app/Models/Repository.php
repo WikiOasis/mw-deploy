@@ -18,7 +18,10 @@ use Illuminate\Support\Collection;
  * A repository as a logical thing — "the Echo extension" — not one checkout of
  * it. The per-version checkouts are RepositoryVersion rows.
  */
-#[Fillable(['name', 'type', 'git_url', 'default_branch', 'in_use', 'active', 'created_by'])]
+#[Fillable([
+    'name', 'type', 'git_url', 'default_branch', 'in_use', 'active', 'created_by',
+    'discovered_at', 'manifest',
+])]
 class Repository extends Model
 {
     /** @use HasFactory<RepositoryFactory> */
@@ -30,6 +33,8 @@ class Repository extends Model
             'type' => RepositoryType::class,
             'in_use' => 'boolean',
             'active' => 'boolean',
+            'discovered_at' => 'datetime',
+            'manifest' => 'array',
         ];
     }
 
@@ -61,6 +66,22 @@ class Repository extends Model
     public function displayName(): string
     {
         return $this->name;
+    }
+
+    /**
+     * The extension's own name for itself, out of extension.json, when it differs
+     * from the directory the farm keeps it in — "Notifications" for extensions/Echo.
+     */
+    public function manifestName(): ?string
+    {
+        $declared = $this->manifest['name'] ?? null;
+
+        return is_string($declared) && $declared !== '' && $declared !== $this->name ? $declared : null;
+    }
+
+    public function wasImported(): bool
+    {
+        return $this->discovered_at !== null;
     }
 
     /**

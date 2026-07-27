@@ -14,8 +14,10 @@
         "vite": "^8.0.0"
     },
     "dependencies": {
-        "alpinejs": "^3.15.12",
+        "@vitejs/plugin-vue": "^6.0.8",
         "laravel-echo": "^2.4.0",
-        "pusher-js": "^8.6.0"
+        "pusher-js": "^8.6.0",
+        "vue": "^3.5.40",
+        "vue-router": "^4.6.4"
     }
 }

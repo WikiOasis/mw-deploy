@@ -84,11 +84,13 @@ of that change is small and contained:
 - `config/fortify.php` — drop `resetPasswords`, `updatePasswords`
 - `App\Actions\Fortify\*` — delete
 - `resources/views/auth/{login,forgot-password,reset-password,confirm-password}.blade.php` — delete
-- `App\Http\Controllers\UserController::store` — no longer sets a password
+- `App\Http\Controllers\Api\UserController::store` — no longer sets a password
 
 **Everything else stays.** Roles, permissions, policies, the per-repo scoping and
 the audit trail are all keyed on `users.id` and do not care how someone
-authenticated. Keep the TOTP requirement even under SSO unless the SSO enforces
+authenticated. The single-page app is unaffected too: it authenticates with the
+session cookie the auth pages set, whatever set it, and reads its own permissions
+from `/api/bootstrap`. Keep the TOTP requirement even under SSO unless the SSO enforces
 its own MFA — this app can push code to 700+ wikis' production servers.
 
 ---

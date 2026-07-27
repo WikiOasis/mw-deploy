@@ -122,7 +122,10 @@ staging + appservers + proxies.
 salt '*' cmd.run 'mwdeploy-shim --version'
 ```
 
-Every minion should print `mwdeploy-shim 2.0.0`.
+Every minion should print `mwdeploy-shim 2.1.0`. The version matters: `tree-scan`,
+which is what the portal reads an existing farm with, arrived in 2.1.0, and a minion
+still on 2.0.0 will fail the import screen with a usage error rather than something
+self-explanatory.
 
 ### Sudoers
 
@@ -222,8 +225,15 @@ mwdeploy-portal-assets:
 **The asset build ordering is not incidental.** `VITE_REVERB_APP_KEY`,
 `VITE_REVERB_HOST`, `VITE_REVERB_PORT` and `VITE_REVERB_SCHEME` are compiled into
 the JS bundle. Changing them in `.env` without re-running `npm run build` leaves
-the browser connecting to the old websocket URL, and the live dashboard silently
-falls back to polling. Make `mwdeploy-portal-assets` watch the `.env` file.
+the browser connecting to the old websocket URL, and the live deployment view
+silently falls back to polling. Make `mwdeploy-portal-assets` watch the `.env` file.
+
+**The asset build is also not optional.** The interface is a Vue single-page app:
+without `public/build/manifest.json` every page returns a 500 from the `@vite`
+directive rather than degrading. If `mwdeploy-portal-assets` fails, the portal is
+down — treat it like the composer install, not like a nice-to-have. It needs no
+network beyond the npm registry at build time; nothing is fetched from a CDN at
+runtime, which is deliberate on a host that may not be allowed out to the internet.
 
 ### 3.3 Directory ownership
 
@@ -363,6 +373,8 @@ These are the ones only you can fill in, from the facts gathered in section 0:
 | `MWDEPLOY_MAX_PARALLEL` | `8` | ceiling the UI will offer |
 | `MWDEPLOY_GIT_DRIVER` | `salt` | `local` only if the master *is* the staging host |
 | `MWDEPLOY_WIKIVERSIONS_PATH` | **fact 12** | read on the staging host to refuse removing a version wikis still use |
+| `MWDEPLOY_CONFIG_DIR` | `config` | where mw-config is checked out, relative to the deploy root |
+| `MWDEPLOY_SCAN_ROOT` | `staging` | which tree the import screen inventories: `staging` or `production` |
 | `MWDEPLOY_REQUIRE_WIKIVERSION_CHECK` | `true` | leave it on; see the warning below |
 | `MWDEPLOY_DECISION_TIMEOUT` | `900` | how long a canary prompt waits for a human |
 | `MWDEPLOY_DECISION_TIMEOUT_DEFAULT` | `abort_and_rollback` | what happens if nobody answers |

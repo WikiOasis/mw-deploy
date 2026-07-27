@@ -45,6 +45,11 @@ return [
             'git-head' => 60,
             'git-refs' => 120,
             'git-remote-check' => 120,
+            // A farm scan walks several hundred directories and reads a manifest
+            // out of each. It is all local file I/O with no subprocesses, but the
+            // tree can be large and NFS-backed, so it gets more room than the
+            // other read-only steps.
+            'tree-scan' => 300,
             'repo-register' => 900,
             'repo-remove' => 300,
             'version-scaffold' => 120,
@@ -94,6 +99,63 @@ return [
          * than proceeding on a guess — see 'versions.require_wiki_version_check'.
          */
         'wiki_versions' => env('MWDEPLOY_WIKIVERSIONS_PATH', '/srv/mediawiki/config/wikiversions.json'),
+
+        /*
+         * Where the config repository (mw-config) is checked out, relative to the
+         * deploy root. It sits outside versions/ because one config serves every
+         * core version.
+         *
+         * Configurable because farms disagree: "config", "mw-config" and
+         * "wikiconfig" are all in the wild, and the import screen has to look in
+         * the right place to find it.
+         */
+        'config_dir' => env('MWDEPLOY_CONFIG_DIR', 'config'),
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | Adopting an existing farm
+    |---------------------------------------------------------------------------
+    |
+    | The portal is not usually installed onto an empty disk. `mwdeploy-shim
+    | tree-scan` reads the MediaWiki tree that is already there — every
+    | versions/<ver>, every extension and skin inside it, their git remotes and
+    | current refs, and each extension.json — and the import screen turns that
+    | into registry rows. Nothing in this path writes to the tree.
+    |
+    */
+
+    'discovery' => [
+        // Which tree to inventory. Staging is the right answer: it is the tree the
+        // portal deploys *from*, so its refs are the ones worth pinning. Set to
+        // 'production' for a farm that has no staging host yet.
+        'scan_root' => env('MWDEPLOY_SCAN_ROOT', 'staging'),
+
+        // Ceiling on checkouts reported by one scan. A large farm is ~3 core
+        // versions × ~200 extensions; the default leaves generous headroom and
+        // still bounds the payload Salt has to carry back.
+        'limit' => (int) env('MWDEPLOY_SCAN_LIMIT', 5000),
+
+        // Parse extension.json/skin.json to get each extension's declared name and
+        // version. Turn off for a faster scan that names things after directories.
+        'read_manifests' => (bool) env('MWDEPLOY_SCAN_MANIFESTS', true),
+
+        /*
+         * Default name for the config repository when one is registered from the
+         * import screen or the one-field config form. Only the registry label;
+         * the checkout path comes from paths.config_dir.
+         */
+        'config_repository_name' => env('MWDEPLOY_CONFIG_REPO_NAME', 'mw-config'),
+
+        /*
+         * Import a directory that is on disk but is not a git checkout?
+         *
+         * Off, and it should stay off: such a directory has no remote to pin, so
+         * the portal could never update or restore it, and a registry row claiming
+         * otherwise is worse than no row. They are reported as warnings on the
+         * import screen instead.
+         */
+        'import_non_git' => (bool) env('MWDEPLOY_IMPORT_NON_GIT', false),
     ],
 
     /*

@@ -7,6 +7,7 @@ namespace Tests;
 use App\Enums\DeploymentDecision;
 use App\Enums\RepositoryType;
 use App\Models\MediaWikiVersion;
+use App\Models\Patch;
 use App\Models\Permission;
 use App\Models\Repository;
 use App\Models\RepositoryVersion;
@@ -21,6 +22,20 @@ use Tests\Support\AutoAnsweringDecisionGate;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        /*
+         * The suite asserts what the server sends, not that the bundle was built.
+         * Without this, every test that renders the SPA shell or a sign-in page
+         * fails on a missing Vite manifest — which turns "did you run npm run
+         * build" into a confusing test failure rather than the deployment concern
+         * it actually is. CI builds the bundle in its own job.
+         */
+        $this->withoutVite();
+    }
+
     /**
      * Swap in the in-memory Salt client. Every test that touches the fleet uses
      * this; nothing in the suite may shell out to a real `salt` binary.
@@ -98,6 +113,14 @@ abstract class TestCase extends BaseTestCase
         );
 
         return RepositoryVersion::factory()->of($repository, $version)->pinnedTo($pin)->create();
+    }
+
+    /**
+     * An active patch registered against one checkout.
+     */
+    protected function patchFor(RepositoryVersion $checkout, string $name = 'A patch'): Patch
+    {
+        return Patch::factory()->forCheckout($checkout)->create(['name' => $name]);
     }
 
     /**

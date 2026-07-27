@@ -10,8 +10,12 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 /**
- * Section 3.5.1: this portal can push code to 700+ wikis' production servers, so
- * a password alone is not enough for any account that can change production.
+ * Section 3.5.1: this portal can push code to 700+ wikis' production servers, so a
+ * password alone is not enough for any account that can change production.
+ *
+ * The requirement applies to the SPA shell and to the API behind it. The API cannot
+ * follow a redirect to an HTML page, so it is told outright — but it is never simply
+ * allowed through.
  */
 final class TwoFactorEnforcementTest extends TestCase
 {
@@ -20,9 +24,10 @@ final class TwoFactorEnforcementTest extends TestCase
     #[Test]
     public function a_read_only_account_is_not_forced_to_enrol(): void
     {
-        $this->actingAs($this->userWithPermissions([], twoFactor: false))
-            ->get(route('dashboard'))
-            ->assertOk();
+        $user = $this->userWithPermissions([], twoFactor: false);
+
+        $this->actingAs($user)->get('/')->assertOk();
+        $this->actingAs($user)->getJson(route('api.bootstrap'))->assertOk();
     }
 
     #[Test]
@@ -31,12 +36,24 @@ final class TwoFactorEnforcementTest extends TestCase
         $user = $this->userWithPermissions([Permissions::DEPLOY_EXTENSION], twoFactor: false);
 
         $this->actingAs($user)
-            ->get(route('dashboard'))
+            ->get('/')
             ->assertRedirect(route('two-factor.setup'));
 
         $this->actingAs($user)
-            ->get(route('deployments.index'))
+            ->get('/deployments')
             ->assertRedirect(route('two-factor.setup'));
+    }
+
+    #[Test]
+    public function the_api_refuses_an_unenrolled_account_rather_than_redirecting_it(): void
+    {
+        $user = $this->userWithPermissions([Permissions::DEPLOY_EXTENSION], twoFactor: false);
+
+        $this->actingAs($user)
+            ->getJson(route('api.deployments.index'))
+            ->assertForbidden()
+            ->assertJsonPath('two_factor_required', true)
+            ->assertJsonPath('enrol_url', route('two-factor.setup'));
     }
 
     #[Test]
@@ -62,7 +79,7 @@ final class TwoFactorEnforcementTest extends TestCase
     public function an_enrolled_account_is_not_redirected(): void
     {
         $this->actingAs($this->userWithPermissions([Permissions::DEPLOY_EXTENSION], twoFactor: true))
-            ->get(route('dashboard'))
+            ->get('/')
             ->assertOk();
     }
 
@@ -82,9 +99,18 @@ final class TwoFactorEnforcementTest extends TestCase
     #[Test]
     public function guests_are_sent_to_the_login_screen(): void
     {
-        $this->get(route('dashboard'))->assertRedirect(route('login'));
-        $this->get(route('deployments.index'))->assertRedirect(route('login'));
-        $this->get(route('repositories.index'))->assertRedirect(route('login'));
+        $this->get('/')->assertRedirect(route('login'));
+        $this->get('/deployments')->assertRedirect(route('login'));
+        $this->get('/repositories')->assertRedirect(route('login'));
+    }
+
+    #[Test]
+    public function a_guest_hitting_the_api_is_refused(): void
+    {
+        // The SPA reloads on a 401, which hands the request to Laravel and lands on
+        // the sign-in page — the one flow that is deliberately still server-rendered.
+        $this->getJson(route('api.bootstrap'))->assertUnauthorized();
+        $this->postJson(route('api.deployments.store'), [])->assertUnauthorized();
     }
 
     #[Test]

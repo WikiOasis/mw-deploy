@@ -123,6 +123,54 @@ final class ShimCalls
     }
 
     /**
+     * Inventory a tree that already has MediaWiki in it.
+     *
+     * Read-only, and deliberately not part of any deployment: it is how the portal
+     * adopts a farm it did not build, so it must be safe to run at any time,
+     * including against a farm nobody has registered anything for yet.
+     *
+     * @param  list<string>  $versions  restrict to these core versions; empty scans
+     *                                  everything, including unversioned checkouts
+     */
+    public function treeScan(?string $root = null, array $versions = [], bool $withWikiVersions = true): SaltCall
+    {
+        $root ??= $this->scanRoot();
+
+        $command = ShimCommand::make(StepName::TreeScan)
+            ->option('root', $root)
+            ->option('config-dir', $this->configDir())
+            ->option('limit', (int) config('mwdeploy.discovery.limit', 5000))
+            ->flag('no-metadata', ! (bool) config('mwdeploy.discovery.read_manifests', true))
+            ->repeatedOption('version', $versions);
+
+        if ($withWikiVersions) {
+            $command->option('wiki-versions', (string) config('mwdeploy.paths.wiki_versions'));
+        }
+
+        return new SaltCall(
+            target: $this->stagingTarget(),
+            command: $command,
+            subject: $root,
+        );
+    }
+
+    /**
+     * Which tree a scan reads. Staging by default: it is the tree deployments are
+     * built in, so its refs are the ones worth pinning the registry to.
+     */
+    public function scanRoot(): string
+    {
+        return config('mwdeploy.discovery.scan_root') === 'production'
+            ? $this->productionRoot()
+            : $this->stagingRoot();
+    }
+
+    public function configDir(): string
+    {
+        return trim((string) config('mwdeploy.paths.config_dir', 'config'), '/') ?: 'config';
+    }
+
+    /**
      * Create the empty versions/<ver> tree for a new core version.
      */
     public function versionScaffold(MediaWikiVersion $version): SaltCall

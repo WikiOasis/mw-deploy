@@ -836,6 +836,299 @@ class WikiVersionsTest(unittest.TestCase):
         self.assertIn("not found", payload["error"])
 
 
+class TreeScanTest(unittest.TestCase):
+    """The read-only inventory the portal adopts an existing farm from.
+
+    Built against real git checkouts rather than fixtures on purpose: the whole
+    subcommand is an assertion about what git leaves on disk, and a hand-written
+    .git/config would only prove the parser agrees with itself.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        root = Path(cls._tmp.name)
+
+        cls.upstream = root / "upstream"
+        cls.tree = root / "srv" / "mediawiki-staging"
+
+        # One upstream per repository, so each checkout has a real remote.
+        for name, manifest in (
+            ("mediawiki", None),
+            ("Echo", {"name": "Notifications", "version": "1.45", "license-name": "MIT",
+                      "requires": {"MediaWiki": ">= 1.43.0"}}),
+            ("Vector", {"name": "Vector"}),
+        ):
+            path = cls.upstream / name
+            os.makedirs(path)
+            git("init", "-q", "-b", "master", ".", cwd=str(path))
+            git("config", "user.email", "deploy@wikioasis.org", cwd=str(path))
+            git("config", "user.name", "Deploy", cwd=str(path))
+
+            if manifest is not None:
+                filename = "skin.json" if name == "Vector" else "extension.json"
+                (path / filename).write_text(json.dumps(manifest))
+            else:
+                os.makedirs(path / "includes")
+                (path / "includes" / "Defines.php").write_text(
+                    "<?php\ndefine( 'MW_VERSION', '1.45.0' );\n"
+                )
+
+            git("add", "-A", cwd=str(path))
+            git("commit", "-qm", "initial", cwd=str(path))
+            git("branch", "-q", "REL1_45", cwd=str(path))
+
+        # Core is the version directory itself, so it is cloned before the
+        # extensions/ and skins/ scaffolding is created inside it — git refuses to
+        # clone into a non-empty directory, which is the same reason the shim's
+        # repo-register does.
+        cls._clone("mediawiki", cls.tree / "versions" / "1.45", "REL1_45")
+
+        os.makedirs(cls.tree / "versions" / "1.45" / "extensions", exist_ok=True)
+        os.makedirs(cls.tree / "versions" / "1.45" / "skins", exist_ok=True)
+
+        cls._clone("Echo", cls.tree / "versions" / "1.45" / "extensions" / "Echo", "REL1_45")
+        cls._clone("Vector", cls.tree / "versions" / "1.45" / "skins" / "Vector", "master")
+
+        # A directory nothing manages, which is exactly what the scan has to report
+        # rather than quietly skip.
+        os.makedirs(cls.tree / "versions" / "1.45" / "extensions" / "HandRolled")
+        (cls.tree / "versions" / "1.45" / "extensions" / "HandRolled" / "x.php").write_text("<?php\n")
+
+        # Config lives outside the version trees.
+        cls._clone("Echo", cls.tree / "config", "master")
+
+        cls.wiki_versions = root / "wikiversions.json"
+        cls.wiki_versions.write_text(json.dumps({"enwiki": "1.45", "metawiki": "php-1.45"}))
+
+    @classmethod
+    def _clone(cls, name: str, destination: Path, branch: str) -> None:
+        subprocess.run(
+            ["git", "clone", "-q", "--branch", branch, str(cls.upstream / name), str(destination)],
+            check=True,
+            capture_output=True,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def scan(self, *extra: str) -> dict:
+        code, payload, _ = run_shim("tree-scan", "--root", str(self.tree), *extra)
+
+        self.assertEqual(0, code, payload)
+
+        return payload
+
+    def entry(self, payload: dict, path: str) -> dict:
+        matches = [entry for entry in payload["entries"] if entry["path"] == path]
+
+        self.assertEqual(1, len(matches), f"expected exactly one entry for {path}")
+
+        return matches[0]
+
+    def test_it_finds_every_version_extension_and_skin(self):
+        payload = self.scan()
+
+        self.assertEqual(["1.45"], payload["versions"])
+        self.assertEqual(
+            sorted(
+                [
+                    "versions/1.45",
+                    "versions/1.45/extensions/Echo",
+                    "versions/1.45/extensions/HandRolled",
+                    "versions/1.45/skins/Vector",
+                    "config",
+                ]
+            ),
+            sorted(entry["path"] for entry in payload["entries"]),
+        )
+        self.assertEqual({"core": 1, "extension": 2, "skin": 1, "config": 1}, payload["counts"])
+
+    def test_it_reads_the_remote_and_the_current_ref_off_disk(self):
+        echo = self.entry(self.scan(), "versions/1.45/extensions/Echo")
+
+        self.assertTrue(echo["is_git"])
+        self.assertEqual(str(self.upstream / "Echo"), echo["git"]["url"])
+        # A branch checkout reports the branch, so an import pins to the branch
+        # rather than freezing the farm at today's commit.
+        self.assertEqual("branch", echo["git"]["ref_type"])
+        self.assertEqual("REL1_45", echo["git"]["ref"])
+        self.assertEqual("origin/REL1_45", echo["git"]["upstream"])
+        self.assertEqual("master", echo["git"]["default_branch"])
+        self.assertRegex(echo["git"]["commit"], r"^[0-9a-f]{40}$")
+
+    def test_a_detached_head_reports_the_commit(self):
+        path = self.tree / "versions" / "1.45" / "skins" / "Vector"
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(path), capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+        git("checkout", "-q", "--detach", sha, cwd=str(path))
+
+        try:
+            vector = self.entry(self.scan(), "versions/1.45/skins/Vector")
+
+            self.assertEqual("commit", vector["git"]["ref_type"])
+            self.assertEqual(sha, vector["git"]["ref"])
+        finally:
+            git("checkout", "-q", "master", cwd=str(path))
+
+    def test_it_reads_the_declared_name_out_of_extension_json(self):
+        echo = self.entry(self.scan(), "versions/1.45/extensions/Echo")
+
+        # The directory is Echo; the extension calls itself Notifications.
+        self.assertEqual("Notifications", echo["meta"]["name"])
+        self.assertEqual("1.45", echo["meta"]["version"])
+        self.assertEqual("MIT", echo["meta"]["license-name"])
+        self.assertEqual(">= 1.43.0", echo["meta"]["requires_mediawiki"])
+        self.assertEqual("extension.json", echo["meta"]["manifest"])
+
+    def test_a_skin_manifest_is_read_too(self):
+        vector = self.entry(self.scan(), "versions/1.45/skins/Vector")
+
+        self.assertEqual("skin.json", vector["meta"]["manifest"])
+        self.assertEqual("skin", vector["kind"])
+
+    def test_no_metadata_skips_manifest_parsing(self):
+        echo = self.entry(self.scan("--no-metadata"), "versions/1.45/extensions/Echo")
+
+        self.assertNotIn("meta", echo)
+        # …but the git facts, which is what an import actually needs, are still there.
+        self.assertEqual("REL1_45", echo["git"]["ref"])
+
+    def test_core_reports_the_version_it_actually_is(self):
+        core = self.entry(self.scan(), "versions/1.45")
+
+        self.assertEqual("core", core["kind"])
+        # Read from MW_VERSION rather than trusted from the directory name: a
+        # versions/1.45 tree on a REL1_44 checkout is drift worth reporting.
+        self.assertEqual("1.45.0", core["core_version"])
+
+    def test_an_unmanaged_directory_is_reported_not_skipped(self):
+        payload = self.scan()
+        hand_rolled = self.entry(payload, "versions/1.45/extensions/HandRolled")
+
+        self.assertFalse(hand_rolled["is_git"])
+        self.assertNotIn("git", hand_rolled)
+        self.assertIn(
+            "versions/1.45/extensions/HandRolled: not a git checkout", payload["warnings"]
+        )
+
+    def test_it_follows_a_git_file_pointing_at_a_module_directory(self):
+        """Extensions were historically submodules of core, so .git is often a file."""
+        path = self.tree / "versions" / "1.45" / "extensions" / "Echo"
+        real = path / ".git"
+        moved = self.tree / "versions" / "1.45" / "modules-Echo"
+
+        os.rename(real, moved)
+        real.write_text(f"gitdir: {moved}\n")
+
+        try:
+            echo = self.entry(self.scan(), "versions/1.45/extensions/Echo")
+
+            self.assertTrue(echo["is_git"])
+            self.assertEqual("REL1_45", echo["git"]["ref"])
+        finally:
+            os.remove(real)
+            os.rename(moved, real)
+
+    def test_it_resolves_a_ref_out_of_packed_refs(self):
+        path = self.tree / "versions" / "1.45" / "extensions" / "Echo"
+        expected = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(path), capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+        # `git pack-refs --all` removes the loose ref files the easy path reads.
+        git("pack-refs", "--all", cwd=str(path))
+
+        echo = self.entry(self.scan(), "versions/1.45/extensions/Echo")
+
+        self.assertEqual(expected, echo["git"]["commit"])
+        self.assertEqual("REL1_45", echo["git"]["ref"])
+
+    def test_restricting_to_a_version_skips_the_unversioned_checkouts(self):
+        payload = self.scan("--version", "1.45")
+
+        self.assertEqual(["1.45"], payload["versions"])
+        self.assertNotIn("config", [entry["path"] for entry in payload["entries"]])
+
+        empty = self.scan("--version", "1.99")
+
+        self.assertEqual([], empty["versions"])
+        self.assertEqual([], empty["entries"])
+
+    def test_the_config_directory_is_configurable(self):
+        payload = self.scan("--config-dir", "nowhere")
+
+        self.assertNotIn("config", [entry["path"] for entry in payload["entries"]])
+        self.assertNotIn("nowhere", [entry["path"] for entry in payload["entries"]])
+
+    def test_it_can_report_the_wiki_version_map_in_the_same_call(self):
+        payload = self.scan("--wiki-versions", str(self.wiki_versions))
+
+        # Both spellings of the map, including Wikimedia's "php-" prefix.
+        self.assertEqual({"1.45": ["enwiki", "metawiki"]}, payload["wiki_versions"])
+
+    def test_an_unreadable_wiki_version_map_is_a_warning_not_a_failure(self):
+        # The scan is how a farm is adopted; it must not be blocked by a file the
+        # portal does not own.
+        payload = self.scan("--wiki-versions", "/definitely/not/here.json")
+
+        self.assertIsNone(payload["wiki_versions"])
+        self.assertTrue(any("wiki version map" in warning for warning in payload["warnings"]))
+
+    def test_the_limit_is_reported_rather_than_silently_truncating(self):
+        payload = self.scan("--limit", "2")
+
+        self.assertEqual(2, len(payload["entries"]))
+        self.assertTrue(any("--limit 2" in warning for warning in payload["warnings"]))
+
+    def test_a_missing_root_fails_loudly(self):
+        code, payload, _ = run_shim("tree-scan", "--root", "/definitely/not/here")
+
+        self.assertEqual(1, code)
+        self.assertFalse(payload["ok"])
+        self.assertIn("no such directory", payload["error"])
+
+    def test_scanning_changes_nothing_on_disk(self):
+        def snapshot() -> set:
+            return {
+                (str(Path(base).relative_to(self.tree)), tuple(sorted(files)))
+                for base, _, files in os.walk(self.tree)
+            }
+
+        before = snapshot()
+        self.scan("--wiki-versions", str(self.wiki_versions))
+
+        self.assertEqual(before, snapshot())
+
+
+class GitConfigParsingTest(unittest.TestCase):
+    """The .git/config reader, on the shapes git actually writes."""
+
+    def test_it_reads_a_subsectioned_remote_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "config").write_text(
+                "[core]\n\trepositoryformatversion = 0\n"
+                '[remote "origin"]\n'
+                "\turl = https://github.com/wikimedia/mediawiki.git\n"
+                "\tfetch = +refs/heads/*:refs/remotes/origin/*\n"
+                '[branch "REL1_45"]\n\tremote = origin\n\tmerge = refs/heads/REL1_45\n'
+            )
+
+            sections = shim.parse_git_config(tmp)
+
+        self.assertEqual(
+            "https://github.com/wikimedia/mediawiki.git",
+            sections['remote "origin"']["url"],
+        )
+        self.assertEqual("refs/heads/REL1_45", sections['branch "REL1_45"']["merge"])
+
+    def test_a_missing_config_is_empty_rather_than_an_exception(self):
+        self.assertEqual({}, shim.parse_git_config("/definitely/not/here"))
+
+
 class L10nRebuildTest(unittest.TestCase):
     def test_a_missing_mediawiki_tree_fails_rather_than_reporting_success(self):
         code, payload, _ = run_shim(

@@ -18,6 +18,7 @@ enum StepName: string
     case GitHead = 'git-head';
     case GitRefs = 'git-refs';
     case GitRemoteCheck = 'git-remote-check';
+    case TreeScan = 'tree-scan';
     case RepoRegister = 'repo-register';
     case RepoRemove = 'repo-remove';
     case VersionScaffold = 'version-scaffold';
@@ -38,6 +39,7 @@ enum StepName: string
             self::GitHead => 'Read current HEAD',
             self::GitRefs => 'List branches and commits',
             self::GitRemoteCheck => 'Check remote is reachable',
+            self::TreeScan => 'Scan the MediaWiki tree',
             self::RepoRegister => 'Register repository',
             self::RepoRemove => 'Remove checkout',
             self::VersionScaffold => 'Scaffold version tree',
