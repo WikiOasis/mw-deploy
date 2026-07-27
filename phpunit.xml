@@ -19,6 +19,13 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!--
+            A fixed throwaway key so the suite runs on a fresh clone with no
+            .env at all, which is how CI checks it out. It encrypts nothing
+            that outlives the run: the database is in-memory and the session
+            and cache drivers are arrays. Do not reuse it anywhere real.
+        -->
+        <env name="APP_KEY" value="base64:BBupRLUc855VGsP2IyKVkX97bjreOT9kuRXzOGBi/lc="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

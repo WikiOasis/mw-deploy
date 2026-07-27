@@ -21,6 +21,17 @@ use Tests\Support\AutoAnsweringDecisionGate;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // The page-render tests assert on markup, not on assets, and the PHP CI
+        // job deliberately does not install Node. Without this, every test that
+        // renders a layout dies on a missing Vite manifest, because
+        // public/build is a build artefact and is not committed.
+        $this->withoutVite();
+    }
+
     /**
      * Swap in the in-memory Salt client. Every test that touches the fleet uses
      * this; nothing in the suite may shell out to a real `salt` binary.
