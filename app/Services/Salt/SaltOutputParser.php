@@ -188,6 +188,17 @@ final class SaltOutputParser
                 .$this->truncate($detail).$this->localCliHint($detail);
         }
 
+        // Salt's own "nobody answered at all" message: unlike "Minion did not
+        // return. [No response]" (which arrives *inside* the JSON envelope,
+        // keyed by minion id) this is printed instead of any JSON when the job
+        // got zero returns before the CLI's --timeout expired. It reads like a
+        // parse failure but it is Salt reporting an unresponsive/unreachable
+        // fleet, not a shim problem.
+        if (str_contains($detail, 'No return received')) {
+            return 'No return received from any minion before the Salt timeout (exit '.$exitCode.'): '
+                .$this->truncate($detail);
+        }
+
         return "Could not parse salt --out=json output (exit {$exitCode}): ".$this->truncate($detail);
     }
 

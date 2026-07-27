@@ -102,6 +102,17 @@ final class TreeScanner
                 .' — the local '.config('mwdeploy.salt.binary').' did not run. Nothing was sent to the fleet.';
         }
 
+        // Distinct from a missing/outdated shim: Salt itself got no return from
+        // any minion before its own --timeout expired. Pointing at the shim
+        // version here would send an operator chasing an install that is not
+        // the problem — check that the minion is up and reachable first.
+        if (str_contains($detail, 'No return received') || str_contains($detail, 'Minion did not return')) {
+            return $this->calls->stagingTarget().' did not respond to Salt before the timeout — this is a '
+                .'minion connectivity problem, not the shim. Confirm the minion is up and check in '
+                .'(`salt-run manage.status`), and look up the job with `salt-run jobs.lookup_jid <jid>` '
+                .'once it finishes.';
+        }
+
         return $this->shimHint();
     }
 
