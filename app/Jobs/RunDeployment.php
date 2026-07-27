@@ -51,7 +51,7 @@ final class RunDeployment implements ShouldBeUnique, ShouldQueue
     public function handle(DeploymentRunner $runner, DeploymentAuthorizer $authorizer): void
     {
         $deployment = Deployment::query()
-            ->with(['repoRefs.repository', 'deploymentPatches.patch', 'creator'])
+            ->with(['repoRefs.repositoryVersion.repository', 'deploymentPatches.patch', 'creator'])
             ->find($this->deploymentId);
 
         if ($deployment === null) {

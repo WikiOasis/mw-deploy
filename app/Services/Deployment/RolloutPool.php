@@ -40,7 +40,6 @@ final class RolloutPool
     /**
      * @param  Collection<int, DeployTarget>  $servers
      * @param  Collection<int, DeployTarget>  $proxies
-     * @param  list<string>  $syncPaths
      */
     public function __construct(
         private readonly SaltClient $salt,
@@ -51,7 +50,8 @@ final class RolloutPool
         private readonly Collection $servers,
         private readonly Collection $proxies,
         private readonly DeploymentOptions $options,
-        private readonly array $syncPaths,
+        private readonly SyncPlan $syncPlan,
+        private readonly RemovalPlan $removals,
     ) {}
 
     /**
@@ -109,7 +109,7 @@ final class RolloutPool
     {
         foreach ($queue as $server) {
             $this->recorder->skip(
-                $this->calls->rsyncRemote($server, $this->syncPaths),
+                $this->skippedStepFor($server),
                 'deployment aborted before this server was reached',
             );
 
@@ -119,9 +119,30 @@ final class RolloutPool
         return [];
     }
 
+    /**
+     * A representative call for a server we never reached, so the skipped step
+     * row says something meaningful. For a removal-only deployment the rsync call
+     * would be a lie, since no rsync was ever going to run.
+     */
+    private function skippedStepFor(DeployTarget $server): SaltCall
+    {
+        if (! $this->syncPlan->required && ! $this->removals->isEmpty()) {
+            return $this->removals->callsFor($server->hostname)[0];
+        }
+
+        return $this->calls->rsyncRemote($server, $this->syncPlan);
+    }
+
     private function open(DeployTarget $server): void
     {
-        $pipeline = new ServerPipeline($this->calls, $server, $this->proxies, $this->options, $this->syncPaths);
+        $pipeline = new ServerPipeline(
+            $this->calls,
+            $server,
+            $this->proxies,
+            $this->options,
+            $this->syncPlan,
+            $this->removals,
+        );
 
         $slot = new PipelineSlot($server, $pipeline->run());
         $this->slots[$server->hostname] = $slot;

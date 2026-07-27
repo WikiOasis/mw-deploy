@@ -15,8 +15,20 @@ return new class extends Migration
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('status')->default('pending'); // pending|running|done|failed|aborted
 
+            /*
+             * What the operator set out to do: deploy | undeploy | version_create
+             * | version_undeploy. Every intent runs through the same pipeline —
+             * this drives permission checks and how history reads, not control
+             * flow. A deployment's actual work is in deployment_repo_refs.action.
+             */
+            $table->string('intent')->default('deploy');
+
             // parallel, force, l10n, rollout, servers[]
             $table->json('options');
+
+            // Set when this deployment created or removed a whole core version.
+            $table->foreignId('mediawiki_version_id')->nullable()
+                ->constrained('mediawiki_versions')->nullOnDelete();
 
             // Set when this deployment is a rollback of another one, so history
             // can render "Rollback of #142" instead of a normal ref list.
@@ -38,6 +50,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index('status');
+            $table->index('intent');
         });
     }
 

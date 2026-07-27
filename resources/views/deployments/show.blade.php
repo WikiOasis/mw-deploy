@@ -11,6 +11,17 @@
             <h1 class="text-xl font-semibold tracking-tight">Deployment #{{ $deployment->id }}</h1>
             <x-status-badge :status="$deployment->status" />
 
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{ $deployment->intent->badgeClasses() }}">
+                {{ $deployment->intent->label() }}
+            </span>
+
+            @if ($deployment->mediawikiVersion)
+                <a href="{{ route('versions.show', $deployment->mediawikiVersion) }}"
+                   class="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium hover:underline">
+                    {{ $deployment->mediawikiVersion->version }}
+                </a>
+            @endif
+
             @if ($deployment->isRollback())
                 <a href="{{ route('deployments.show', $deployment->rolls_back_deployment_id) }}"
                    class="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 hover:underline">
@@ -52,7 +63,7 @@
                     {{ $newerDeployments->count() }} later
                     {{ Str::plural('deployment', $newerDeployments->count()) }}
                     {{ $newerDeployments->count() === 1 ? 'has' : 'have' }} touched the same
-                    {{ Str::plural('repository', $deployment->repoRefs->count()) }}:
+                    {{ Str::plural('checkout', $deployment->repoRefs->count()) }}:
                     @foreach ($newerDeployments as $newer)
                         <a href="{{ route('deployments.show', $newer) }}" class="underline">#{{ $newer->id }}</a>@if (! $loop->last), @endif
                     @endforeach
@@ -122,9 +133,13 @@
                     <ul class="divide-y divide-slate-100 text-sm">
                         @foreach ($deployment->repoRefs as $ref)
                             <li class="flex flex-wrap items-baseline gap-2 py-2 first:pt-0">
-                                <span class="font-medium">{{ $ref->repository?->displayName() ?? 'deleted repository' }}</span>
-                                <code class="font-mono text-xs">{{ $ref->ref_value }}</code>
-                                <span class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{{ $ref->ref_type->value }}</span>
+                                <span class="font-medium">{{ $ref->repositoryVersion?->displayName() ?? 'deleted checkout' }}</span>
+                                @if ($ref->isUndeploy())
+                                    <span class="rounded bg-orange-100 px-1.5 py-0.5 text-xs text-orange-900">removed</span>
+                                @else
+                                    <code class="font-mono text-xs">{{ $ref->ref_value }}</code>
+                                    <span class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{{ $ref->ref_type?->value }}</span>
+                                @endif
                             </li>
                         @endforeach
                     </ul>
@@ -147,12 +162,9 @@
                     <ul class="divide-y divide-slate-100 text-sm">
                         @foreach ($deployment->snapshots as $snapshot)
                             <li class="py-2 first:pt-0">
-                                <span class="font-medium">{{ $snapshot->repository?->displayName() ?? 'deleted repository' }}</span>
+                                <span class="font-medium">{{ $snapshot->repositoryVersion?->displayName() ?? 'deleted checkout' }}</span>
                                 <span class="block text-xs text-slate-500">
-                                    was
-                                    <code class="font-mono">{{ $snapshot->previous_ref_value ?? 'unknown' }}</code>
-                                    →
-                                    <code class="font-mono">{{ $snapshot->new_ref_value }}</code>
+                                    <code class="font-mono">{{ $snapshot->summary() }}</code>
                                     @unless ($snapshot->isRollbackable())
                                         <span class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-amber-900">not rollbackable</span>
                                     @endunless

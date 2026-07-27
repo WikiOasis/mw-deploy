@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests;
 
+use App\Enums\RefMode;
 use App\Enums\RepositoryType;
 use App\Models\Repository;
 use Illuminate\Contracts\Validation\Validator;
@@ -14,7 +15,11 @@ final class StoreRepositoryRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->can('create', Repository::class) === true;
+        $repository = $this->route('repository');
+
+        return $repository instanceof Repository
+            ? $this->user()?->can('update', $repository) === true
+            : $this->user()?->can('create', Repository::class) === true;
     }
 
     /**
@@ -29,8 +34,17 @@ final class StoreRepositoryRequest extends FormRequest
             // the registry point the clone at something unexpected.
             'git_url' => ['required', 'string', 'max:500', 'regex:#^(https://[^\s]+|git@[^\s:]+:[^\s]+)$#'],
             'default_branch' => ['required', 'string', 'max:120', 'regex:/^[A-Za-z0-9._\/\-]+$/'],
-            'core_version' => ['nullable', 'string', 'max:20', 'regex:/^[0-9]+\.[0-9]+$/'],
             'in_use' => ['sometimes', 'boolean'],
+
+            // Which core versions to add a checkout in. Empty means unversioned,
+            // i.e. a top-level clone.
+            'versions' => ['sometimes', 'array'],
+            'versions.*' => ['integer', Rule::exists('mediawiki_versions', 'id')],
+
+            // Per-version pin, keyed by version id.
+            'refs' => ['sometimes', 'array'],
+            'refs.*.ref_mode' => ['sometimes', Rule::enum(RefMode::class)],
+            'refs.*.ref' => ['sometimes', 'nullable', 'string', 'max:255', 'regex:/^[A-Za-z0-9._\/\-]+$/'],
         ];
     }
 
@@ -42,7 +56,6 @@ final class StoreRepositoryRequest extends FormRequest
         return [
             'name.regex' => 'Use only letters, digits, dots, dashes and underscores — this becomes a directory name.',
             'git_url.regex' => 'Give an https:// or git@host:path remote.',
-            'core_version.regex' => 'Use a MediaWiki version like 1.45.',
         ];
     }
 
@@ -51,15 +64,30 @@ final class StoreRepositoryRequest extends FormRequest
         $validator->after(function (Validator $validator): void {
             $type = RepositoryType::tryFrom((string) $this->input('type'));
 
-            // A core version row *is* the version directory, so it needs one.
-            if ($type === RepositoryType::Core && $this->input('core_version') === null) {
-                $validator->errors()->add('core_version', 'A core version is required when registering MediaWiki core.');
+            if ($type === null) {
+                return;
+            }
+
+            // Core is the version directory itself — it is created by cutting a
+            // version, not by registering a repository into one.
+            if ($type === RepositoryType::Core && $this->input('versions', []) !== []) {
+                $validator->errors()->add(
+                    'versions',
+                    'MediaWiki core is registered once; its per-version checkouts come from creating a version.',
+                );
+            }
+
+            if ($type->isVersioned() && $type !== RepositoryType::Core && $this->input('versions', []) === []) {
+                $validator->errors()->add(
+                    'versions',
+                    'Choose at least one core version to add this to, or it will be cloned at the top level '
+                    .'outside every version tree.',
+                );
             }
 
             $duplicate = Repository::query()
-                ->where('type', (string) $this->input('type'))
+                ->where('type', $type->value)
                 ->where('name', (string) $this->input('name'))
-                ->where('core_version', $this->input('core_version'))
                 ->when($this->route('repository') !== null, function ($query) {
                     $repository = $this->route('repository');
 
@@ -68,8 +96,33 @@ final class StoreRepositoryRequest extends FormRequest
                 ->exists();
 
             if ($duplicate) {
-                $validator->errors()->add('name', 'That repository is already registered for this version.');
+                $validator->errors()->add('name', 'A '.$type->label().' called that is already registered.');
             }
         });
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function versionIds(): array
+    {
+        return array_map('intval', (array) $this->input('versions', []));
+    }
+
+    /**
+     * @return array<int, array{ref_mode?: string, ref?: string|null}>
+     */
+    public function refOverrides(): array
+    {
+        $overrides = [];
+
+        foreach ((array) $this->input('refs', []) as $versionId => $override) {
+            $overrides[(int) $versionId] = [
+                'ref_mode' => is_string($override['ref_mode'] ?? null) ? $override['ref_mode'] : null,
+                'ref' => is_string($override['ref'] ?? null) ? $override['ref'] : null,
+            ];
+        }
+
+        return $overrides;
     }
 }

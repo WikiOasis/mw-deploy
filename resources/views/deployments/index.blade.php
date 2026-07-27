@@ -42,15 +42,16 @@
                                 </td>
                                 <td class="py-2 pr-4"><x-status-badge :status="$deployment->status" /></td>
                                 <td class="py-2 pr-4">
+                                    <span class="rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {{ $deployment->intent->badgeClasses() }}">
+                                        {{ $deployment->intent->label() }}
+                                    </span>
                                     @if ($deployment->isRollback())
                                         <a href="{{ route('deployments.show', $deployment->rolls_back_deployment_id) }}"
-                                           class="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 hover:underline">
+                                           class="ml-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 hover:underline">
                                             Rollback of #{{ $deployment->rolls_back_deployment_id }}
                                         </a>
                                     @else
-                                        <span class="text-slate-600">
-                                            {{ $deployment->repoRefs->map(fn ($ref) => ($ref->repository?->displayName() ?? 'deleted repo').' @ '.$ref->shortRef())->implode(', ') ?: '—' }}
-                                        </span>
+                                        <span class="ml-1 text-slate-600">{{ Str::limit($deployment->summary(), 80) }}</span>
                                     @endif
                                     @if ($deployment->rollbacks->isNotEmpty())
                                         <span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">

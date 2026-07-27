@@ -24,8 +24,8 @@ final class RepositoryPolicy
     }
 
     /**
-     * Adding a repository means arbitrary code will run on every appserver, so
-     * it is a separate trust decision from "can deploy".
+     * Adding a repository means arbitrary code will run on every appserver, so it
+     * is a separate trust decision from "can deploy".
      */
     public function create(User $user): bool
     {
@@ -45,5 +45,14 @@ final class RepositoryPolicy
     public function deploy(User $user, Repository $repository): bool
     {
         return $user->canDeployRepository($repository);
+    }
+
+    /**
+     * Removing a checkout off the whole fleet is a different grant from updating
+     * it, and per-repository scoping still applies on top.
+     */
+    public function undeploy(User $user, Repository $repository): bool
+    {
+        return $user->canUndeployRepository($repository);
     }
 }

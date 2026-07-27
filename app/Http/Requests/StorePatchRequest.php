@@ -29,7 +29,7 @@ final class StorePatchRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:150'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'target_repo_id' => ['nullable', 'integer', Rule::exists('repositories', 'id')],
+            'target_repository_version_id' => ['nullable', 'integer', Rule::exists('repository_versions', 'id')],
             // Relative to the MediaWiki root, and not allowed to climb out of it.
             'target_path' => ['required', 'string', 'max:255', 'regex:#^[A-Za-z0-9._\-]+(/[A-Za-z0-9._\-]+)*$#', 'not_regex:#(^|/)\.\.(/|$)#'],
             'format' => ['required', 'in:unified,git'],

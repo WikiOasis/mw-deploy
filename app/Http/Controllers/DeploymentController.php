@@ -25,7 +25,7 @@ final class DeploymentController extends Controller
 
         return view('deployments.index', [
             'deployments' => Deployment::query()
-                ->with(['creator', 'repoRefs.repository', 'rollsBack', 'rollbacks'])
+                ->with(['creator', 'repoRefs.repositoryVersion.repository', 'mediawikiVersion', 'rollsBack', 'rollbacks'])
                 ->when($status !== null, fn ($query) => $query->where('status', $status->value))
                 ->latest('id')
                 ->paginate(25)
@@ -41,7 +41,8 @@ final class DeploymentController extends Controller
 
         $deployment->load([
             'creator', 'decidedBy', 'rollsBack', 'rollbacks',
-            'repoRefs.repository', 'snapshots.repository',
+            'repoRefs.repositoryVersion.repository', 'repoRefs.repositoryVersion.mediawikiVersion',
+            'snapshots.repositoryVersion.repository', 'mediawikiVersion',
             'deploymentPatches.patch', 'steps',
         ]);
 
@@ -87,22 +88,22 @@ final class DeploymentController extends Controller
     }
 
     /**
-     * Deployments that have touched the same repositories since this one, so the
-     * history view can warn before an out-of-order rollback (section 6.2).
+     * Deployments that have touched the same checkouts since this one, so the
+     * history view can warn before an out-of-order rollback.
      *
      * @return Collection<int, Deployment>
      */
     private function newerDeploymentsTouchingSameRepos(Deployment $deployment): Collection
     {
-        $repositoryIds = $deployment->repoRefs->pluck('repository_id')->all();
+        $checkoutIds = $deployment->repoRefs->pluck('repository_version_id')->all();
 
-        if ($repositoryIds === []) {
+        if ($checkoutIds === []) {
             return collect();
         }
 
         return Deployment::query()
             ->where('id', '>', $deployment->getKey())
-            ->whereHas('repoRefs', fn ($query) => $query->whereIn('repository_id', $repositoryIds))
+            ->whereHas('repoRefs', fn ($query) => $query->whereIn('repository_version_id', $checkoutIds))
             ->orderBy('id')
             ->get();
     }

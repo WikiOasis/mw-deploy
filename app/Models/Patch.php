@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'name', 'description', 'target_repo_id', 'target_path', 'file_path',
+    'name', 'description', 'target_repository_version_id', 'target_path', 'file_path',
     'original_filename', 'format', 'active', 'created_by',
     'last_checked_at', 'last_check_ok', 'last_check_detail',
 ])]
@@ -30,9 +30,15 @@ class Patch extends Model
         ];
     }
 
-    public function targetRepository(): BelongsTo
+    /**
+     * The specific checkout this patch targets. A patch is written against files
+     * as they exist in one core version; the same diff rarely applies cleanly
+     * across a version boundary, so this points at the checkout rather than at
+     * the logical repository.
+     */
+    public function targetCheckout(): BelongsTo
     {
-        return $this->belongsTo(Repository::class, 'target_repo_id');
+        return $this->belongsTo(RepositoryVersion::class, 'target_repository_version_id');
     }
 
     public function creator(): BelongsTo
@@ -47,7 +53,7 @@ class Patch extends Model
 
     public function isFreeform(): bool
     {
-        return $this->target_repo_id === null;
+        return $this->target_repository_version_id === null;
     }
 
     /**
@@ -64,5 +70,10 @@ class Patch extends Model
     public function stagingTargetPath(): string
     {
         return rtrim((string) config('mwdeploy.paths.staging'), '/').'/'.ltrim($this->target_path, '/');
+    }
+
+    public function targetLabel(): string
+    {
+        return $this->targetCheckout?->displayName() ?? 'freeform (no checkout)';
     }
 }

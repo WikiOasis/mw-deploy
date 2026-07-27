@@ -6,7 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StorePatchRequest;
 use App\Models\Patch;
-use App\Models\Repository;
+use App\Models\RepositoryVersion;
 use App\Services\Salt\Contracts\SaltClient;
 use App\Services\Salt\ShimCalls;
 use Illuminate\Contracts\View\View;
@@ -30,7 +30,7 @@ final class PatchController extends Controller
 
         return view('patches.index', [
             'patches' => Patch::query()
-                ->with(['targetRepository', 'creator'])
+                ->with(['targetCheckout.repository', 'targetCheckout.mediawikiVersion', 'creator'])
                 ->orderBy('active', 'desc')
                 ->orderBy('name')
                 ->get(),
@@ -42,7 +42,7 @@ final class PatchController extends Controller
         $this->authorize('create', Patch::class);
 
         return view('patches.create', [
-            'repositories' => $this->repositoryOptions(),
+            'checkouts' => $this->checkoutOptions(),
         ]);
     }
 
@@ -67,7 +67,7 @@ final class PatchController extends Controller
 
         return view('patches.edit', [
             'patch' => $patch,
-            'repositories' => $this->repositoryOptions(),
+            'checkouts' => $this->checkoutOptions(),
         ]);
     }
 
@@ -142,10 +142,22 @@ final class PatchController extends Controller
     }
 
     /**
-     * @return Collection<int, Repository>
+     * Every checkout a patch could target. A patch is written against the files as
+     * they exist in one core version, so the target is a checkout rather than a
+     * logical repository.
+     *
+     * @return Collection<int, RepositoryVersion>
      */
-    private function repositoryOptions(): Collection
+    private function checkoutOptions(): Collection
     {
-        return Repository::query()->active()->orderBy('type')->orderBy('name')->get();
+        return RepositoryVersion::query()
+            ->with(['repository', 'mediawikiVersion'])
+            ->whereHas('repository', fn ($query) => $query->where('active', true))
+            ->get()
+            ->sortBy([
+                fn (RepositoryVersion $checkout) => $checkout->repository?->name ?? '',
+                fn (RepositoryVersion $checkout) => $checkout->versionLabel(),
+            ])
+            ->values();
     }
 }

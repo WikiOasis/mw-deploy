@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Git;
 
-use App\Models\Repository;
+use App\Models\RepositoryVersion;
 use App\Services\Git\Contracts\GitRefProvider;
 
 /**
@@ -13,12 +13,14 @@ use App\Services\Git\Contracts\GitRefProvider;
  */
 final class NullGitRefProvider implements GitRefProvider
 {
-    public function branches(Repository $repository): array
+    public function branches(RepositoryVersion $checkout): array
     {
-        return [new GitRef($repository->default_branch, isDefault: true)];
+        $branch = $checkout->repository?->default_branch ?? 'master';
+
+        return [new GitRef($branch, isDefault: true)];
     }
 
-    public function commits(Repository $repository, ?string $branch = null): array
+    public function commits(RepositoryVersion $checkout, ?string $branch = null): array
     {
         return [];
     }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Models\Patch;
-use App\Models\Repository;
+use App\Models\RepositoryVersion;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -25,7 +25,7 @@ final class PatchFactory extends Factory
         return [
             'name' => $name,
             'description' => fake()->sentence(),
-            'target_repo_id' => null,
+            'target_repository_version_id' => null,
             'target_path' => 'versions/1.45/extensions/Echo',
             'file_path' => str_replace(' ', '-', $name).'.patch',
             'original_filename' => str_replace(' ', '-', $name).'.patch',
@@ -35,14 +35,14 @@ final class PatchFactory extends Factory
     }
 
     /**
-     * Deliberately not named for(): that is Illuminate's belongs-to helper on
-     * the base Factory, and shadowing it breaks every other factory call.
+     * Deliberately not named for(): that is Illuminate's belongs-to helper on the
+     * base Factory, and shadowing it breaks every other factory call.
      */
-    public function forRepository(Repository $repository): static
+    public function forCheckout(RepositoryVersion $checkout): static
     {
         return $this->state([
-            'target_repo_id' => $repository->getKey(),
-            'target_path' => $repository->path,
+            'target_repository_version_id' => $checkout->getKey(),
+            'target_path' => $checkout->path,
         ]);
     }
 

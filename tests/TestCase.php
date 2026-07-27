@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Tests;
 
 use App\Enums\DeploymentDecision;
+use App\Enums\RepositoryType;
+use App\Models\MediaWikiVersion;
 use App\Models\Permission;
+use App\Models\Repository;
+use App\Models\RepositoryVersion;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Deployment\DecisionGate;
@@ -73,5 +77,39 @@ abstract class TestCase extends BaseTestCase
     protected function admin(): User
     {
         return $this->userWithPermissions(array_keys(Permissions::all()));
+    }
+
+    /**
+     * A core version, present on disk.
+     */
+    protected function version(string $version): MediaWikiVersion
+    {
+        return MediaWikiVersion::factory()->create(['version' => $version]);
+    }
+
+    /**
+     * An extension checked out in one version, pinned to $pin.
+     */
+    protected function extension(string $name, MediaWikiVersion $version, string $pin = 'master'): RepositoryVersion
+    {
+        $repository = Repository::query()->firstOrCreate(
+            ['type' => RepositoryType::Extension->value, 'name' => $name],
+            ['git_url' => 'https://github.com/wikioasis/mediawiki-extensions-'.$name, 'default_branch' => 'master'],
+        );
+
+        return RepositoryVersion::factory()->of($repository, $version)->pinnedTo($pin)->create();
+    }
+
+    /**
+     * MediaWiki core checked out as one version's tree.
+     */
+    protected function core(MediaWikiVersion $version, string $pin = 'REL1_45'): RepositoryVersion
+    {
+        $repository = Repository::query()->firstOrCreate(
+            ['type' => RepositoryType::Core->value, 'name' => 'mediawiki'],
+            ['git_url' => 'https://github.com/wikimedia/mediawiki', 'default_branch' => 'master'],
+        );
+
+        return RepositoryVersion::factory()->of($repository, $version)->pinnedTo($pin)->create();
     }
 }

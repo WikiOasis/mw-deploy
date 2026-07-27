@@ -37,6 +37,8 @@ human; do not guess.
 | 9 | Whether nginx or Apache fronts PHP on the master already | existing states | reuse vs. add |
 | 10 | The domain to serve the portal on | a human | everything TLS-related |
 | 11 | Whether the farm already has an NFS export of the MediaWiki tree | a human / mount states | decides section 5 |
+| 12 | Path and format of the **wiki → core version map** | mw-config / `wikiversions.json` | `MWDEPLOY_WIKIVERSIONS_PATH`; blocks version removal until right |
+| 13 | Which core versions exist right now, and each one's release branch | the staging tree / existing mwdeploy config | seeding versions and their pins |
 
 ### Decisions that need a human, not you
 
@@ -52,6 +54,11 @@ Flag these and proceed with the stated default:
 - **SSO.** The portal currently has its own password store. See
   [`OPEN-QUESTIONS.md#3`](OPEN-QUESTIONS.md). If staff SSO exists, that work should
   land before you create real accounts.
+- **Disk headroom for a second core version.** Each version is a full MediaWiki
+  tree plus its own copy of every extension and skin. Cutting 1.46 alongside 1.45
+  roughly doubles `/srv/mediawiki` and `/srv/mediawiki-staging`, on the staging host
+  *and* every appserver. Confirm there is room before anyone uses the "cut a
+  version" form, and consider a disk-space check in the state.
 
 ---
 
@@ -355,8 +362,23 @@ These are the ones only you can fill in, from the facts gathered in section 0:
 | `MWDEPLOY_DEFAULT_PARALLEL` | `1` | start conservative |
 | `MWDEPLOY_MAX_PARALLEL` | `8` | ceiling the UI will offer |
 | `MWDEPLOY_GIT_DRIVER` | `salt` | `local` only if the master *is* the staging host |
+| `MWDEPLOY_WIKIVERSIONS_PATH` | **fact 12** | read on the staging host to refuse removing a version wikis still use |
+| `MWDEPLOY_REQUIRE_WIKIVERSION_CHECK` | `true` | leave it on; see the warning below |
 | `MWDEPLOY_DECISION_TIMEOUT` | `900` | how long a canary prompt waits for a human |
 | `MWDEPLOY_DECISION_TIMEOUT_DEFAULT` | `abort_and_rollback` | what happens if nobody answers |
+
+**On `MWDEPLOY_WIKIVERSIONS_PATH`:** undeploying a core version reads this file (via
+the shim, on the staging host) and refuses if any wiki still points at that version.
+It also refuses if the file cannot be read or is in a shape the shim does not
+recognise — failing closed, because guessing means deleting the version everything
+is running on. The shim accepts `{"wiki": "1.45"}`, `{"wiki": "php-1.45"}` and
+`{"wiki": {"version": "1.45"}}`.
+
+Get this path right. If it is wrong, version removal is *blocked* rather than
+dangerous — which is the correct failure direction, but it will look like a bug.
+`MWDEPLOY_REQUIRE_WIKIVERSION_CHECK=false` disables the check; do not set it unless
+the map genuinely cannot be reached, and expect the versions page to display a
+standing warning while it is off.
 
 ### 3.6 Migrate, seed, cache
 
@@ -898,15 +920,20 @@ Then in the UI, in order:
 2. **Repositories** — the current core version first, so `versions/<ver>/` exists,
    then extensions, skins, config. Each save clones onto staging, so a bad remote
    fails here rather than mid-deploy.
-3. **Patches** — re-register anything in `scripts/extensions/patches/`, then hit
-   **Dry run** on each. Expect some failures: the shim uses `patch --fuzz=0`, so a
-   patch that previously only applied because of GNU patch's default fuzz factor
-   is now refused. That is the intended behaviour, not a regression.
-4. **A staging-only deployment of one small extension.** Tick "staging only",
-   pick one extension, review the plan, run it. Confirm every step goes green and
-   the live dashboard updates without a page refresh (proving the websocket path
-   through HAProxy → nginx → Reverb works).
-5. Only then a real deployment, with `parallel = 1` and one server selected.
+4. **Patches** — re-register anything in `scripts/extensions/patches/`, pointing
+   each at the specific *checkout* it applies to, then hit **Dry run** on each.
+   Expect some failures: the shim uses `patch --fuzz=0`, so a patch that previously
+   only applied because of GNU patch's default fuzz factor is now refused. That is
+   the intended behaviour, not a regression.
+5. **A staging-only deployment of one small extension.** Tick "staging only", pick
+   one extension in one version, review the plan, run it. Confirm every step goes
+   green and the live dashboard updates without a page refresh (proving the
+   websocket path through HAProxy → nginx → Reverb works).
+6. **A staging-only undeploy of that same extension, then roll it back.** This is
+   the cheapest way to prove the removal guards and the restore path work before
+   anyone needs them in anger. Check the review screen shows the literal
+   `repo-remove --path … --root …` before you confirm.
+7. Only then a real deployment, with `parallel = 1` and one server selected.
 
 ---
 
@@ -983,3 +1010,16 @@ appservers are in. Separate them.
 **Patch dry runs fail after migration.** Expected. `--fuzz=0` refuses patches whose
 context no longer matches; they were previously applying to approximately the
 right place. Fix the patch files, do not re-enable fuzz.
+
+**Undeploying a version is refused and you are sure no wiki uses it.** The map at
+`MWDEPLOY_WIKIVERSIONS_PATH` could not be read, or is in a shape the shim does not
+recognise. Check the step log — the failure quotes the reason. Fix the path or the
+format rather than disabling the check.
+
+**A new version's extensions are all on the wrong branch.** Copied checkouts inherit
+the source version's pin, which for a release branch means 1.46 got 1.45's REL1_45.
+The review screen lists every ref for exactly this reason; use the per-repository
+override on the create form, or fix the pins afterwards under Repositories.
+
+**Disk fills up during a version cut.** Each version is a full tree. There is no
+pre-flight check yet — see the flagged decision in section 0.

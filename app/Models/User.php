@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\RepoAction;
 use App\Enums\RepositoryType;
 use App\Support\Permissions;
 use Database\Factories\UserFactory;
@@ -94,7 +95,7 @@ class User extends Authenticatable
 
     /**
      * True when this account can change production and therefore must have TOTP
-     * enrolled (section 3.5.1).
+     * enrolled.
      */
     public function requiresTwoFactor(): bool
     {
@@ -107,21 +108,48 @@ class User extends Authenticatable
     }
 
     /**
-     * Coarse per-type check plus the optional per-repository scoping from
-     * section 3.5.2. A repository with no repository_permissions rows is
-     * governed purely by deploy.<type>; once it has rows, the actor must match
-     * one of them.
+     * Coarse per-type check plus the optional per-repository scoping.
+     *
+     * A repository with no repository_permissions rows is governed purely by
+     * deploy.<type>; once it has rows, the actor must match one of them.
      */
     public function canDeployRepository(Repository $repository): bool
+    {
+        return $this->canActOnRepository($repository, RepoAction::Deploy);
+    }
+
+    /**
+     * Removal is a separate grant from deployment. Per-repository scoping still
+     * applies on top: someone scoped to Echo who also holds
+     * deploy.undeploy_extension can remove Echo and nothing else.
+     */
+    public function canUndeployRepository(Repository $repository): bool
+    {
+        return $this->canActOnRepository($repository, RepoAction::Undeploy);
+    }
+
+    public function canActOnRepository(Repository $repository, RepoAction $action): bool
     {
         $type = $repository->type instanceof RepositoryType
             ? $repository->type
             : RepositoryType::from((string) $repository->type);
 
-        if (! $this->hasPermission($type->deployPermission())) {
+        $permission = $action === RepoAction::Undeploy
+            ? $type->undeployPermission()
+            : $type->deployPermission();
+
+        if (! $this->hasPermission($permission)) {
             return false;
         }
 
+        return $this->withinRepositoryScope($repository);
+    }
+
+    /**
+     * Whether the optional per-repository scoping admits this actor.
+     */
+    public function withinRepositoryScope(Repository $repository): bool
+    {
         if (! RepositoryPermission::query()->where('repository_id', $repository->getKey())->exists()) {
             return true;
         }
@@ -136,13 +164,13 @@ class User extends Authenticatable
     }
 
     /**
-     * Bulk form of canDeployRepository() for list screens: two queries total
+     * Bulk form of canActOnRepository() for list screens: two queries total
      * instead of two per repository.
      *
      * @param  Collection<int, Repository>  $repositories
      * @return Collection<int, Repository>
      */
-    public function deployableRepositories(Collection $repositories): Collection
+    public function actionableRepositories(Collection $repositories, RepoAction $action = RepoAction::Deploy): Collection
     {
         $roleIds = $this->roles()->pluck('roles.id');
 
@@ -156,12 +184,16 @@ class User extends Authenticatable
             ->unique();
 
         return $repositories
-            ->filter(function (Repository $repository) use ($scoped, $allowed): bool {
+            ->filter(function (Repository $repository) use ($scoped, $allowed, $action): bool {
                 $type = $repository->type instanceof RepositoryType
                     ? $repository->type
                     : RepositoryType::from((string) $repository->type);
 
-                if (! $this->hasPermission($type->deployPermission())) {
+                $permission = $action === RepoAction::Undeploy
+                    ? $type->undeployPermission()
+                    : $type->deployPermission();
+
+                if (! $this->hasPermission($permission)) {
                     return false;
                 }
 
@@ -169,6 +201,15 @@ class User extends Authenticatable
                     || $allowed->contains($repository->getKey());
             })
             ->values();
+    }
+
+    /**
+     * @param  Collection<int, Repository>  $repositories
+     * @return Collection<int, Repository>
+     */
+    public function deployableRepositories(Collection $repositories): Collection
+    {
+        return $this->actionableRepositories($repositories, RepoAction::Deploy);
     }
 
     public function forgetPermissionCache(): void

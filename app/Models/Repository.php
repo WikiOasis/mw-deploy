@@ -12,11 +12,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
-#[Fillable([
-    'name', 'type', 'git_url', 'default_branch', 'core_version',
-    'path', 'in_use', 'active', 'created_by', 'registered_at',
-])]
+/**
+ * A repository as a logical thing — "the Echo extension" — not one checkout of
+ * it. The per-version checkouts are RepositoryVersion rows.
+ */
+#[Fillable(['name', 'type', 'git_url', 'default_branch', 'in_use', 'active', 'created_by'])]
 class Repository extends Model
 {
     /** @use HasFactory<RepositoryFactory> */
@@ -28,18 +30,17 @@ class Repository extends Model
             'type' => RepositoryType::class,
             'in_use' => 'boolean',
             'active' => 'boolean',
-            'registered_at' => 'datetime',
         ];
+    }
+
+    public function versions(): HasMany
+    {
+        return $this->hasMany(RepositoryVersion::class);
     }
 
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
-    }
-
-    public function patches(): HasMany
-    {
-        return $this->hasMany(Patch::class, 'target_repo_id');
     }
 
     public function scopedPermissions(): HasMany
@@ -52,35 +53,49 @@ class Repository extends Model
         $query->where('active', true);
     }
 
-    /**
-     * Absolute path of this repository inside the staging tree.
-     */
-    public function stagingPath(): string
+    public function scopeOfType(Builder $query, RepositoryType $type): void
     {
-        return rtrim((string) config('mwdeploy.paths.staging'), '/').'/'.ltrim($this->path, '/');
+        $query->where('type', $type->value);
     }
 
-    /**
-     * Absolute path of this repository inside the production tree.
-     */
-    public function productionPath(): string
-    {
-        return rtrim((string) config('mwdeploy.paths.production'), '/').'/'.ltrim($this->path, '/');
-    }
-
-    /**
-     * Human label including the core version when the repo lives in a
-     * versions/<ver> subtree, since the same extension exists once per version.
-     */
     public function displayName(): string
     {
-        return $this->core_version === null
-            ? $this->name
-            : $this->name.' ('.$this->core_version.')';
+        return $this->name;
+    }
+
+    /**
+     * Checkouts currently on disk, newest core version first.
+     *
+     * @return Collection<int, RepositoryVersion>
+     */
+    public function presentVersions(): Collection
+    {
+        return $this->versions()
+            ->present()
+            ->with('mediawikiVersion')
+            ->get()
+            ->sortByDesc(fn (RepositoryVersion $checkout) => $checkout->mediawikiVersion?->version ?? '')
+            ->values();
+    }
+
+    public function checkoutFor(?MediaWikiVersion $version): ?RepositoryVersion
+    {
+        return $this->versions()
+            ->where('mediawiki_version_id', $version?->getKey())
+            ->first();
     }
 
     public function hasScopedPermissions(): bool
     {
         return $this->scopedPermissions()->exists();
+    }
+
+    /**
+     * Whether this repository is checked out in a versions/<ver> subtree at all.
+     * Config is not, and neither is an extension deliberately kept top-level.
+     */
+    public function isVersioned(): bool
+    {
+        return $this->type->isVersioned();
     }
 }

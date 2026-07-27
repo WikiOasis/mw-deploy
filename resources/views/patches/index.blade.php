@@ -56,7 +56,7 @@
                             <div>
                                 <dt class="inline uppercase tracking-wide">Target</dt>
                                 <dd class="inline">
-                                    {{ $patch->targetRepository?->displayName() ?? 'freeform (no repository)' }}
+                                    {{ $patch->targetLabel() }}
                                     <code class="ml-1 font-mono">{{ $patch->target_path }}</code>
                                 </dd>
                             </div>

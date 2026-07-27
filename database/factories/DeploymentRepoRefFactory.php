@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Database\Factories;
 
 use App\Enums\RefType;
+use App\Enums\RepoAction;
 use App\Models\DeploymentRepoRef;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -21,9 +22,19 @@ final class DeploymentRepoRefFactory extends Factory
     public function definition(): array
     {
         return [
+            'action' => RepoAction::Deploy->value,
             'ref_type' => RefType::Branch->value,
             'ref_value' => 'master',
         ];
+    }
+
+    public function undeploy(): static
+    {
+        return $this->state([
+            'action' => RepoAction::Undeploy->value,
+            'ref_type' => null,
+            'ref_value' => null,
+        ]);
     }
 
     public function commit(string $sha): static

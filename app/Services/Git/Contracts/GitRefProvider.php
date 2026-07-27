@@ -4,24 +4,25 @@ declare(strict_types=1);
 
 namespace App\Services\Git\Contracts;
 
-use App\Models\Repository;
+use App\Models\RepositoryVersion;
 use App\Services\Git\GitRef;
 
 interface GitRefProvider
 {
     /**
-     * Remote-tracking branches available for the ref picker.
+     * Remote-tracking branches available for the ref picker, read from this
+     * checkout's clone on the staging host.
      *
      * @return list<GitRef>
      */
-    public function branches(Repository $repository): array;
+    public function branches(RepositoryVersion $checkout): array;
 
     /**
      * Recent commits, most recent first.
      *
      * @return list<GitRef>
      */
-    public function commits(Repository $repository, ?string $branch = null): array;
+    public function commits(RepositoryVersion $checkout, ?string $branch = null): array;
 
     /**
      * Whether this provider can actually answer, so the UI can explain an empty

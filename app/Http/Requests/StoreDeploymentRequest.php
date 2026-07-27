@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Requests;
 
+use App\Enums\DeploymentIntent;
 use App\Enums\RefType;
+use App\Enums\RepoAction;
 use App\Enums\TargetRole;
 use App\Models\Deployment;
 use App\Models\DeployTarget;
 use App\Models\Patch;
-use App\Models\Repository;
+use App\Models\RepositoryVersion;
 use App\Support\DeploymentOptions;
 use App\Support\Permissions;
 use Illuminate\Contracts\Validation\Validator;
@@ -18,20 +20,28 @@ use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 
 /**
- * Backs both the review screen and the actual create, so what an operator
- * confirms is validated by exactly the same rules that admit the deployment.
+ * Backs both the review screen and the actual create, so what an operator confirms
+ * is validated by exactly the same rules that admit the deployment.
  *
  * This is the UI half of "check permissions in both places"; the job re-derives
  * the same answers through DeploymentAuthorizer.
  */
 final class StoreDeploymentRequest extends FormRequest
 {
-    /** @var Collection<int, Repository>|null */
-    private ?Collection $resolvedRepositories = null;
+    /** @var Collection<int, RepositoryVersion>|null */
+    private ?Collection $resolvedCheckouts = null;
 
     public function authorize(): bool
     {
-        return $this->user()?->can('create', Deployment::class) === true;
+        $user = $this->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        return $this->intent() === DeploymentIntent::Undeploy
+            ? $user->hasAnyPermission(Permissions::anyUndeploy())
+            : $user->can('create', Deployment::class);
     }
 
     /**
@@ -39,11 +49,21 @@ final class StoreDeploymentRequest extends FormRequest
      */
     public function rules(): array
     {
+        $isUndeploy = $this->intent() === DeploymentIntent::Undeploy;
+
         return [
-            'refs' => ['required', 'array', 'min:1'],
-            'refs.*.repository_id' => ['required', 'integer', Rule::exists('repositories', 'id')->where('active', true)],
-            'refs.*.ref_type' => ['required', Rule::enum(RefType::class)],
-            'refs.*.ref_value' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9._\/\-]+$/'],
+            'intent' => ['sometimes', Rule::in([DeploymentIntent::Deploy->value, DeploymentIntent::Undeploy->value])],
+
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.repository_version_id' => ['required', 'integer', Rule::exists('repository_versions', 'id')],
+
+            // A removal has no ref to check out, and accepting one would imply the
+            // operator had a say in something that is ignored.
+            'items.*.ref_value' => [
+                $isUndeploy ? 'prohibited' : 'required',
+                'string', 'max:255', 'regex:/^[A-Za-z0-9._\/\-]+$/',
+            ],
+            'items.*.ref_type' => ['sometimes', 'nullable', Rule::enum(RefType::class)],
 
             'patches' => ['sometimes', 'array'],
             'patches.*' => ['integer', Rule::exists('patches', 'id')->where('active', true)],
@@ -67,14 +87,15 @@ final class StoreDeploymentRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'refs.required' => 'Select at least one repository to deploy.',
-            'refs.*.ref_value.regex' => 'A git ref may only contain letters, digits, dots, slashes, dashes and underscores.',
+            'items.required' => 'Select at least one checkout.',
+            'items.*.ref_value.regex' => 'A git ref may only contain letters, digits, dots, slashes, dashes and underscores.',
+            'items.*.ref_value.prohibited' => 'An undeploy has no ref to check out.',
         ];
     }
 
     /**
      * Permission checks that need the resolved models, run after the basic rules
-     * pass so error messages can name the offending repository.
+     * pass so error messages can name the offending checkout.
      */
     public function withValidator(Validator $validator): void
     {
@@ -85,21 +106,46 @@ final class StoreDeploymentRequest extends FormRequest
                 return;
             }
 
-            // Keyed by the submitted array key (which may be a repository id
-            // rather than a numeric index) so errors land on the right field.
-            $byId = $this->repositories()->keyBy('id');
+            $isUndeploy = $this->intent() === DeploymentIntent::Undeploy;
+            $byId = $this->checkouts()->keyBy('id');
 
-            foreach ((array) $this->input('refs', []) as $key => $ref) {
-                $repository = $byId->get((int) ($ref['repository_id'] ?? 0));
+            foreach ((array) $this->input('items', []) as $key => $item) {
+                $checkout = $byId->get((int) ($item['repository_version_id'] ?? 0));
+
+                if ($checkout === null) {
+                    continue;
+                }
+
+                $repository = $checkout->repository;
 
                 if ($repository === null) {
+                    $validator->errors()->add("items.{$key}.repository_version_id", 'That repository no longer exists.');
+
+                    continue;
+                }
+
+                if ($isUndeploy) {
+                    if (! $user->canUndeployRepository($repository)) {
+                        $validator->errors()->add(
+                            "items.{$key}.repository_version_id",
+                            'You do not have permission to remove '.$checkout->displayName().'.',
+                        );
+                    }
+
+                    if (! $checkout->isPresent()) {
+                        $validator->errors()->add(
+                            "items.{$key}.repository_version_id",
+                            $checkout->displayName().' is already undeployed.',
+                        );
+                    }
+
                     continue;
                 }
 
                 if (! $user->canDeployRepository($repository)) {
                     $validator->errors()->add(
-                        'refs.'.$key.'.repository_id',
-                        'You do not have permission to deploy '.$repository->displayName().'.',
+                        "items.{$key}.repository_version_id",
+                        'You do not have permission to deploy '.$checkout->displayName().'.',
                     );
                 }
             }
@@ -121,45 +167,60 @@ final class StoreDeploymentRequest extends FormRequest
         });
     }
 
-    /**
-     * @return array<int, array{repository_id: int, ref_type: string, ref_value: string}>
-     */
-    public function refs(): array
+    public function intent(): DeploymentIntent
     {
-        $refs = [];
+        return DeploymentIntent::tryFrom((string) $this->input('intent', 'deploy')) ?? DeploymentIntent::Deploy;
+    }
 
-        foreach ($this->validated('refs') as $ref) {
-            $value = trim((string) $ref['ref_value']);
-
-            $refs[] = [
-                'repository_id' => (int) $ref['repository_id'],
-                'ref_type' => RefType::reconcile((string) $ref['ref_type'], $value)->value,
-                'ref_value' => $value,
-            ];
-        }
-
-        return $refs;
+    public function action(): RepoAction
+    {
+        return $this->intent()->defaultAction();
     }
 
     /**
-     * Every repository referenced by the submitted refs.
-     *
-     * @return Collection<int, Repository>
+     * @return array<int, array{repository_version_id: int, action: string, ref_type: ?string, ref_value: ?string}>
      */
-    public function repositories(): Collection
+    public function items(): array
     {
-        return $this->resolvedRepositories ??= Repository::query()
-            ->whereKey($this->submittedRepositoryIds())
+        $action = $this->action();
+        $items = [];
+
+        foreach ($this->validated('items') as $item) {
+            $value = $action === RepoAction::Undeploy
+                ? null
+                : trim((string) ($item['ref_value'] ?? ''));
+
+            $items[] = [
+                'repository_version_id' => (int) $item['repository_version_id'],
+                'action' => $action->value,
+                'ref_type' => $value === null || $value === ''
+                    ? null
+                    : RefType::reconcile($item['ref_type'] ?? null, $value)->value,
+                'ref_value' => $value === '' ? null : $value,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * @return Collection<int, RepositoryVersion>
+     */
+    public function checkouts(): Collection
+    {
+        return $this->resolvedCheckouts ??= RepositoryVersion::query()
+            ->with(['repository', 'mediawikiVersion'])
+            ->whereIn('id', $this->submittedCheckoutIds())
             ->get();
     }
 
     /**
      * @return list<int>
      */
-    private function submittedRepositoryIds(): array
+    private function submittedCheckoutIds(): array
     {
-        return collect((array) $this->input('refs', []))
-            ->map(fn ($ref) => (int) ($ref['repository_id'] ?? 0))
+        return collect((array) $this->input('items', []))
+            ->map(fn ($item) => (int) ($item['repository_version_id'] ?? 0))
             ->filter()
             ->unique()
             ->values()
@@ -167,14 +228,16 @@ final class StoreDeploymentRequest extends FormRequest
     }
 
     /**
-     * Patches selected for this deployment, restricted to active ones.
-     *
      * @return Collection<int, Patch>
      */
     public function patches(): Collection
     {
-        // whereIn rather than whereKey so an empty selection still returns an
-        // Eloquent collection (and so modelKeys() stays available downstream).
+        // Patches are meaningless on a removal, so they are dropped rather than
+        // validated away — the wizard does not offer them either.
+        if ($this->intent() === DeploymentIntent::Undeploy) {
+            return Patch::query()->whereRaw('1 = 0')->get();
+        }
+
         return Patch::query()
             ->active()
             ->whereIn('id', array_map('intval', (array) $this->input('patches', [])))

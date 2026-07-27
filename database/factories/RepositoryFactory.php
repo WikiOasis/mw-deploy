@@ -6,7 +6,6 @@ namespace Database\Factories;
 
 use App\Enums\RepositoryType;
 use App\Models\Repository;
-use App\Support\PathResolver;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -24,38 +23,30 @@ final class RepositoryFactory extends Factory
         return [
             'name' => fake()->unique()->regexify('[A-Z][a-z]{4,10}'),
             'type' => RepositoryType::Extension->value,
-            'core_version' => '1.45',
             'default_branch' => 'master',
             'in_use' => true,
             'active' => true,
-            'registered_at' => now(),
-
-            // Closures see the merged attributes, so an overridden name or type
-            // still produces the right staging path.
             'git_url' => fn (array $attributes) => 'https://github.com/wikioasis/mediawiki-extensions-'.$attributes['name'],
-            'path' => fn (array $attributes) => (new PathResolver)->relativePath(
-                RepositoryType::from((string) $attributes['type']),
-                (string) $attributes['name'],
-                $attributes['core_version'] === null ? null : (string) $attributes['core_version'],
-            ),
         ];
     }
 
-    public function ofType(RepositoryType $type, ?string $coreVersion = '1.45'): static
+    public function ofType(RepositoryType $type): static
     {
-        return $this->state([
-            'type' => $type->value,
-            'core_version' => $type === RepositoryType::Config ? null : $coreVersion,
-        ]);
+        return $this->state(['type' => $type->value]);
     }
 
-    public function core(string $version = '1.45'): static
+    public function core(): static
     {
-        return $this->ofType(RepositoryType::Core, $version)->state(['name' => 'mediawiki']);
+        return $this->state(['type' => RepositoryType::Core->value, 'name' => 'mediawiki']);
+    }
+
+    public function skin(): static
+    {
+        return $this->ofType(RepositoryType::Skin);
     }
 
     public function config(): static
     {
-        return $this->ofType(RepositoryType::Config, null)->state(['name' => 'mw-config']);
+        return $this->state(['type' => RepositoryType::Config->value, 'name' => 'mw-config']);
     }
 }

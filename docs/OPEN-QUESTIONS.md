@@ -147,6 +147,88 @@ of the "Dry run" button in the patch registry.
 
 ---
 
+## 6a. The version model, undeploy, and what those settled
+
+Added after the first pass, when the multiversion requirements were spelled out.
+These were **decisions Thomas made**, recorded here so the reasoning is not lost.
+
+**A repository is not a checkout.** `repositories` holds the logical thing (Echo);
+`repository_versions` holds one row per core version it is checked out in, each with
+its own path and its own ref pin. The alternative — one row per (name, version) —
+was cheaper but meant "Echo" was never one thing in the database, and every later
+feature would have worked around that.
+
+**Each checkout pins its own ref, and the pin is a default not a restriction.**
+`ref_mode` is `pinned` (the usual case: 1.45 tracks REL1_45), `default_branch`
+(follow the repository's), or `floating` (choose every time). "Deploy Echo to all
+versions" therefore sends the right branch to each version with no retyping, and
+any row can still be overridden per deployment, or in bulk from the wizard.
+
+**Undeploy is per version, and reversible.** Removing Echo from 1.46 leaves 1.45
+alone. The `repository_versions` row survives as `undeployed`, so restoring it needs
+no re-registration — and because snapshots record presence as well as ref, the
+ordinary rollback path restores it at the ref it was on. A repository that ends up in
+no version deactivates automatically; deactivating a repository through the registry
+form deliberately does *not* delete anything, and says so.
+
+**Removal is a separate permission from deployment, at every level.**
+`deploy.undeploy_extension`, `deploy.undeploy_skin`, `deploy.undeploy_config`,
+`deploy.undeploy_version`. Per-repository scoping applies on top of all of them, so
+a maintainer scoped to Echo can remove Echo and nothing else. The seeder gives
+`deployer` none of them, and `deploy.undeploy_version` only to `admin`.
+
+**A new version is reconstructed from an existing one.** "Cut 1.46 from 1.45"
+registers and clones core plus every extension and skin 1.45 has, each at a ref you
+pick. Copied checkouts inherit the source version's pin, which is right for a
+moving branch and wrong for a release branch — so the review screen lists every ref
+before a single clone runs, and there is a per-repository override. Deriving the set
+from mw-config's enabled-extension list was considered and rejected for v1: it needs
+knowledge of that file's location and format, and breaks when either changes.
+
+**Version creation and removal are ordinary deployments.** Same job, same review
+screen, same live dashboard, same rollback. Rolling back a version-create removes
+the version; rolling back a version-undeploy rebuilds it. That falls out of the
+snapshot's presence columns rather than being special-cased.
+
+## 6b. Safety decisions around removal
+
+These were not asked about, but `rm -rf` on a portal-supplied path warrants stating.
+
+**The shim refuses unsafe paths itself.** `repo-remove --path P --root R` resolves
+both sides through `realpath` and refuses: a path outside the root, the root itself,
+the `versions/` directory, a bare `versions/<ver>` without `--allow-version-root`, a
+relative path, a path containing `..`, a symlink pointing out of the root, and
+anything that is not a directory. A sibling that merely shares a name prefix
+(`/srv/mediawiki-old` against a `/srv/mediawiki` root) is refused too. Eleven tests
+cover exactly these.
+
+**Removal does not rely on rsync `--delete` propagating a deletion.** It would
+probably work, but the semantics under a path-restricted include set are subtle and
+change entirely under NFS. Instead an explicit `repo-remove` runs on staging and on
+each appserver — deterministic, attributable per host, and transport-independent.
+
+**A removal-only deployment does not rsync at all.** "No paths" means "the whole
+tree" to rsync, so conflating "nothing to sync" with "sync everything" would turn
+removing one extension into a full-fleet tree walk. `SyncPlan` models the three
+cases explicitly.
+
+**Undeploying a version fails closed.** The runner reads the farm's wiki → version
+map through the shim and refuses if any wiki still uses that version — and also
+refuses if the map cannot be read or is in a shape the shim does not recognise.
+Guessing there means deleting the version everything is running on.
+`MWDEPLOY_REQUIRE_WIKIVERSION_CHECK` can disable it for a farm whose map is
+genuinely unreachable, and the versions page shows a warning when it is off.
+
+**Where the map lives is still a fact we need.** `MWDEPLOY_WIKIVERSIONS_PATH`
+defaults to `/srv/mediawiki/config/wikiversions.json` and the shim accepts
+`{"wiki": "1.45"}`, `{"wiki": "php-1.45"}` and `{"wiki": {"version": "1.45"}}`.
+**Confirm the real path and format**, because until that is right, version removal is
+blocked by design rather than by accident.
+
+**The registry is only reconciled on success.** A deployment that failed halfway
+leaves the fleet in a state the registry cannot describe, so presence is not updated
+— claiming otherwise would make the next rollback wrong.
+
 ## 6. Coarse per-type permissions, or per-repo scoping?
 
 **Both are built; coarse is what you get unless you opt in per repository.**
@@ -214,6 +296,11 @@ git-refs` and is correct either way; `local` remains available and is cheaper
 are atomic and single-purpose in the same spirit: `git-head` is what makes
 `repo_state_snapshots` possible, and `git-refs` backs the ref picker without
 needing a GitHub token.
+
+**Checkout paths are immutable after registration.** They are stored on the
+`repository_versions` row rather than recomputed, because they are what
+`repo-remove` is pointed at: a path that can drift is a path that can delete the
+wrong directory. The edit form says so and offers no way to change them.
 
 **A branch checkout lands on a branch, not a detached HEAD.** `git-checkout --ref
 master` creates/resets a local branch tracking `origin/master`. If it detached,

@@ -16,7 +16,7 @@ final class DashboardController extends Controller
     public function __invoke(): View
     {
         $active = Deployment::query()
-            ->with(['creator', 'repoRefs.repository'])
+            ->with(['creator', 'repoRefs.repositoryVersion.repository'])
             ->whereIn('status', [DeploymentStatus::Pending->value, DeploymentStatus::Running->value])
             ->latest('id')
             ->get();
@@ -24,7 +24,7 @@ final class DashboardController extends Controller
         return view('dashboard', [
             'active' => $active,
             'recent' => Deployment::query()
-                ->with(['creator', 'repoRefs.repository', 'rollsBack'])
+                ->with(['creator', 'repoRefs.repositoryVersion.repository', 'rollsBack'])
                 ->whereNotIn('status', [DeploymentStatus::Pending->value, DeploymentStatus::Running->value])
                 ->latest('id')
                 ->limit(10)

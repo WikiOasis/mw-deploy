@@ -18,6 +18,7 @@
 
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <x-nav-link :href="route('deployments.index')" :active="request()->routeIs('deployments.index')">History</x-nav-link>
+                <x-nav-link :href="route('versions.index')" :active="request()->routeIs('versions.*')">Versions</x-nav-link>
                 <x-nav-link :href="route('repositories.index')" :active="request()->routeIs('repositories.*')">Repositories</x-nav-link>
                 <x-nav-link :href="route('patches.index')" :active="request()->routeIs('patches.*')">Patches</x-nav-link>
                 @can(\App\Support\Permissions::TARGETS_MANAGE)
