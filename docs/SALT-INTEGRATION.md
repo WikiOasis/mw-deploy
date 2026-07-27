@@ -714,7 +714,10 @@ server {
     # below or a large farm scan hits nginx's timeout first: a 504 with an HTML
     # error page, which the portal's JSON parser correctly refuses to swallow but
     # which reads as "the import broke" when really nginx just gave up early.
-    location ~ ^/api/import {
+    # Exact match — both GET (show) and POST (store) live at this one path with
+    # no subpaths (routes/api.php), and a regex here would also swallow anything
+    # starting with /api/import, like a hypothetical /api/importer.
+    location = /api/import {
         fastcgi_pass unix:/run/php/php8.4-fpm-deploy-portal.sock;
         fastcgi_index index.php;
         include fastcgi_params;
@@ -834,12 +837,15 @@ backend deploy_portal
     # which can be tens of minutes. Without a raised tunnel timeout HAProxy drops
     # it and the dashboard silently degrades to polling.
     timeout tunnel 1h
+    timeout server 120s
 
     # `/api/import` runs a `tree-scan` synchronously and nginx gives it up to
-    # 1320s (see the nginx config above) — HAProxy must not cut the connection
-    # before nginx would. A lower `timeout server` here turns a large farm scan
-    # into a 504 with an HAProxy error page instead of a scan result.
-    timeout server 1320s
+    # 1320s (see the nginx config above). Overriding the backend-wide `timeout
+    # server` would give every other portal request — including ones that hang
+    # for a bad reason — the same 1320s grace; scope the raise to this one path
+    # instead, per-request, and leave the 120s default alone everywhere else.
+    acl is_import path /api/import
+    http-request set-timeout server 1320s if is_import
 
     # Laravel's health endpoint, added by the framework.
     option httpchk GET /up
