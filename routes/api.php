@@ -50,6 +50,8 @@ Route::post('deployments/{deployment}/cancel', [DeploymentDecisionController::cl
     ->name('api.deployments.cancel');
 Route::post('deployments/{deployment}/abort', [DeploymentDecisionController::class, 'abort'])
     ->name('api.deployments.abort');
+Route::post('deployments/{deployment}/force-fail', [DeploymentDecisionController::class, 'forceFail'])
+    ->name('api.deployments.force-fail');
 
 // Core versions.
 Route::get('versions', [VersionController::class, 'index'])->name('api.versions.index');

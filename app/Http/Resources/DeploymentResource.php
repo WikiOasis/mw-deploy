@@ -101,6 +101,7 @@ final class DeploymentResource extends JsonResource
                 'decide' => $user?->can('decide', $this->resource) ?? false,
                 'cancel' => $user?->can('cancel', $this->resource) ?? false,
                 'abort' => $user?->can('abort', $this->resource) ?? false,
+                'force_fail' => $user?->can('forceFail', $this->resource) ?? false,
             ],
 
             'abort_requested_at' => $this->abort_requested_at?->toIso8601String(),

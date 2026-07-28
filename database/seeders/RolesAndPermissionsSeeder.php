@@ -26,7 +26,7 @@ final class RolesAndPermissionsSeeder extends Seeder
             'permissions' => [
                 P::DEPLOY_CORE, P::DEPLOY_EXTENSION, P::DEPLOY_SKIN, P::DEPLOY_CONFIG,
                 P::DEPLOY_PRODUCTION_SERVERS, P::DEPLOY_FORCE_FLAG, P::DEPLOY_ROLLBACK,
-                P::DEPLOY_DECIDE, P::DEPLOY_POOL,
+                P::DEPLOY_DECIDE, P::DEPLOY_POOL, P::DEPLOY_FORCE_FAIL,
                 P::UNDEPLOY_EXTENSION, P::UNDEPLOY_SKIN, P::UNDEPLOY_CONFIG, P::UNDEPLOY_VERSION,
                 P::VERSIONS_MANAGE, P::REPOSITORIES_MANAGE, P::PATCHES_MANAGE,
                 P::TARGETS_MANAGE, P::USERS_MANAGE,
