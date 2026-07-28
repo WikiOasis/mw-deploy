@@ -368,6 +368,8 @@ These are the ones only you can fill in, from the facts gathered in section 0:
 | `MWDEPLOY_HAPROXY_BACKEND` | **fact 5** | default backend for depool/repool |
 | `MWDEPLOY_CANARY_VHOST` | e.g. `meta.wikioasis.org` | a wiki that returns 200 |
 | `MWDEPLOY_CANARY_EXPECT` | `content="MediaWiki` | marker expected in the body; the default matches the `<meta name="generator" content="MediaWiki x.xx.x">` tag every MediaWiki skin renders, so it works for any vhost without special-casing a sitename |
+| `MWDEPLOY_CANARY_SCHEME` | `http` | the canary connects to the appserver's own listener, not the public endpoint — set to `https` only if that listener terminates TLS itself, e.g. no HAProxy/nginx doing it in front |
+| `MWDEPLOY_CANARY_PORT` | unset | defaults to 80/443 based on `MWDEPLOY_CANARY_SCHEME` |
 | `MWDEPLOY_L10N_WIKI` | `testwiki` | |
 | `MWDEPLOY_DEFAULT_PARALLEL` | `1` | start conservative |
 | `MWDEPLOY_MAX_PARALLEL` | `8` | ceiling the UI will offer |
