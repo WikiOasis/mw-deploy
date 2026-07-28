@@ -19,6 +19,11 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Fixed, non-secret: the test suite never encrypts anything worth
+             protecting, it just needs an encrypter key to exist so the
+             framework's own session/cookie machinery doesn't throw
+             MissingAppKeyException before a single test runs. -->
+        <env name="APP_KEY" value="base64:lsDeVvAHgf6HraSn8pBtvHpO+i5iVC4W4OhDerKZLYU="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
