@@ -73,8 +73,18 @@ final class ProcessSaltClient implements SaltClient
             ));
         }
 
-        $decoded = json_decode(trim($process->getOutput()), true);
+        $output = trim($process->getOutput());
+
+        $decoded = json_decode($output, true);
         $jid = is_array($decoded) ? ($decoded['jid'] ?? null) : null;
+
+        // `--out=json` only formats a *minion's* return, and an async kickoff
+        // never gets one — the CLI prints "Executed command with job ID: <jid>"
+        // via a bare print() ahead of the outputter, regardless of --out. That
+        // line, not JSON, is the normal successful shape for this call.
+        if ((! is_string($jid) || $jid === '') && preg_match('/[Jj]ob ID:\s*(\S+)/', $output, $matches) === 1) {
+            $jid = $matches[1];
+        }
 
         if (! is_string($jid) || $jid === '') {
             $detail = trim($process->getErrorOutput()) !== ''
