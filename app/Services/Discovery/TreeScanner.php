@@ -66,21 +66,26 @@ final class TreeScanner
      * the job and hand back a JID, never as long as the scan itself takes.
      *
      * @param  list<string>  $versions
+     * @param  bool  $fresh  bypass a reusable in-flight/just-finished scan and start
+     *                       a genuinely new one — the "Re-scan" button's contract
      *
      * @throws ScanFailed if the local salt CLI itself never runs
      */
-    public function startScan(array $versions = []): string
+    public function startScan(array $versions = [], bool $fresh = false): string
     {
         $inflightKey = self::ASYNC_CACHE_PREFIX.'inflight:'.md5($this->calls->scanRoot().'|'.implode(',', $versions));
 
         // Two concurrent cache misses (two operators opening the screen at once,
         // or a page reload racing the first load) would otherwise each start
         // their own tree-scan against the same target. A short lock collapses
-        // that into one in-flight job every caller polls.
-        return Cache::lock($inflightKey.':lock', 10)->block(5, function () use ($versions, $inflightKey): string {
+        // that into one in-flight job every caller polls — but only when nobody
+        // asked for $fresh: reusing a scan that has *already finished* would make
+        // "Re-scan" silently keep serving the same stale plan for however long the
+        // in-flight pointer's TTL still has left, up to ~26 minutes.
+        return Cache::lock($inflightKey.':lock', 10)->block(5, function () use ($versions, $fresh, $inflightKey): string {
             $existing = Cache::get($inflightKey);
 
-            if (is_string($existing) && Cache::has(self::ASYNC_CACHE_PREFIX.$existing)) {
+            if (! $fresh && is_string($existing) && Cache::has(self::ASYNC_CACHE_PREFIX.$existing)) {
                 return $existing;
             }
 

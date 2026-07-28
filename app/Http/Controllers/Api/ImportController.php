@@ -47,7 +47,7 @@ final class ImportController extends Controller
         }
 
         try {
-            return $this->pollScan($scanner->startScan($versions), $scanner, $planner, $apply);
+            return $this->pollScan($scanner->startScan($versions, $fresh), $scanner, $planner, $apply);
         } catch (ScanFailed $failure) {
             return $this->scanFailedResponse($failure);
         }
@@ -83,7 +83,7 @@ final class ImportController extends Controller
                 $scan = $fresh ? null : $scanner->cached($versions);
 
                 if ($scan === null) {
-                    $scanId = $scanner->startScan($versions);
+                    $scanId = $scanner->startScan($versions, $fresh);
                     $scan = $scanner->pollScan($scanId);
 
                     if ($scan === null) {

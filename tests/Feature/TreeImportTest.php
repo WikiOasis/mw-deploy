@@ -373,6 +373,21 @@ final class TreeImportTest extends TestCase
     }
 
     #[Test]
+    public function re_scanning_always_asks_salt_again_rather_than_reusing_the_last_scan(): void
+    {
+        $this->respondWithScan();
+
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->getJson(route('api.import.show', ['fresh' => 1]))->assertOk();
+        // A second "Re-scan" moments later, well inside the in-flight scan's TTL —
+        // it must not silently reuse the first scan's job.
+        $this->actingAs($admin)->getJson(route('api.import.show', ['fresh' => 1]))->assertOk();
+
+        $this->assertCount(2, $this->salt->callsFor(StepName::TreeScan));
+    }
+
+    #[Test]
     public function the_api_reports_a_scan_failure_with_a_hint_rather_than_an_empty_plan(): void
     {
         $this->salt->respondTo(StepName::TreeScan, false);
