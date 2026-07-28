@@ -50,10 +50,12 @@ final readonly class SaltCall
     /**
      * The argv for `salt --async ...`: identical to argv() but swapping
      * --static (which forces the CLI to wait for every minion) for --async
-     * (which hands back a job ID instead of waiting). --out=json is kept so the
-     * kickoff's own stdout — `{"jid": "...", "minions": [...]}` — is a single
-     * parseable line rather than the human-readable "Executed command with job
-     * ID: ..." text.
+     * (which hands back a job ID instead of waiting). --out=json is kept for
+     * consistency with argv() and because some Salt versions do honour it here,
+     * but the kickoff's own stdout is normally the human-readable "Executed
+     * command with job ID: ..." line regardless — that line is printed ahead of
+     * the outputter and is not subject to --out. The parser (SaltOutputParser /
+     * ProcessSaltClient::startAsync) accepts either shape.
      *
      * @return list<string>
      */
