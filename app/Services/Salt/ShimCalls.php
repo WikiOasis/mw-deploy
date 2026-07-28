@@ -398,6 +398,7 @@ final class ShimCalls
     public function canary(string $hostname, ?string $vhost = null, ?int $retries = null, ?string $expect = null, ?string $host = null): SaltCall
     {
         $vhost ??= (string) config('mwdeploy.rollout.canary_vhost');
+        $port = config('mwdeploy.rollout.canary_port');
 
         return new SaltCall(
             target: $hostname,
@@ -405,7 +406,9 @@ final class ShimCalls
                 ->option('vhost', $vhost)
                 ->option('retries', $retries ?? (int) config('mwdeploy.rollout.canary_retries'))
                 ->optionalOption('expect', $expect ?? (string) config('mwdeploy.rollout.canary_expect'))
-                ->optionalOption('host', $host),
+                ->optionalOption('host', $host)
+                ->optionalOption('scheme', (string) config('mwdeploy.rollout.canary_scheme'))
+                ->optionalOption('port', $port === null || $port === '' ? null : (int) $port),
             subject: $vhost,
         );
     }

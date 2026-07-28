@@ -243,6 +243,16 @@ return [
         'canary_vhost' => env('MWDEPLOY_CANARY_VHOST', 'meta.wikioasis.org'),
         'canary_retries' => (int) env('MWDEPLOY_CANARY_RETRIES', 3),
 
+        // The canary connects straight to the appserver's own listener rather
+        // than going through the proxy (see `ip_address` in the targets doc),
+        // and on most fleets that listener is the plain-HTTP backend behind
+        // HAProxy/nginx TLS termination — not the public HTTPS endpoint. Set
+        // to 'https' only if the appserver itself terminates TLS locally.
+        'canary_scheme' => env('MWDEPLOY_CANARY_SCHEME', 'http'),
+
+        // Left unset, the shim uses 80 for http / 443 for https.
+        'canary_port' => env('MWDEPLOY_CANARY_PORT'),
+
         // Case-insensitive marker expected in the canary body. Every successful
         // MediaWiki skin render emits <meta name="generator" content="MediaWiki
         // x.xx.x">, regardless of the wiki's own branding or sitename — unlike a

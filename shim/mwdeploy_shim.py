@@ -1704,7 +1704,7 @@ def build_parser() -> argparse.ArgumentParser:
     canary.add_argument("--host", default="127.0.0.1", help="Address to connect to directly")
     canary.add_argument("--port", type=int, default=None, help="Defaults to 443/80 based on --scheme")
     canary.add_argument("--path", default="/wiki/Main_Page")
-    canary.add_argument("--scheme", choices=("http", "https"), default="https")
+    canary.add_argument("--scheme", choices=("http", "https"), default="http")
     canary.add_argument("--retries", type=int, default=3)
     canary.add_argument("--backoff", type=float, default=3.0)
     canary.add_argument("--timeout", type=int, default=15)
