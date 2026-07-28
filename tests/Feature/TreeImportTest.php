@@ -508,6 +508,89 @@ final class TreeImportTest extends TestCase
     }
 
     #[Test]
+    public function a_manual_paste_understands_the_legacy_shim_shape(): void
+    {
+        $manager = $this->userWithPermissions([Permissions::REPOSITORIES_MANAGE]);
+
+        // Exactly the shape an older deployed shim reports: `checkouts` instead of
+        // `entries`, absolute paths, and `git`/`remote`/`ref_type` as flat sibling
+        // fields rather than a nested `git` object.
+        $payload = [
+            'ok' => true,
+            'detail' => 'scanned /srv/mediawiki-staging: 734 checkout(s) (734 git)',
+            'root' => '/srv/mediawiki-staging',
+            'checkouts' => [
+                [
+                    'kind' => 'core',
+                    'name' => 'core-1.45',
+                    'version' => '1.45',
+                    'path' => '/srv/mediawiki-staging/versions/1.45',
+                    'git' => true,
+                    'ref_type' => 'branch',
+                    'ref' => 'refs/heads/REL1_45',
+                    'commit' => str_repeat('a', 40),
+                    'remote' => 'https://github.com/WikiOasis/mediawiki',
+                    'mw_version' => '1.45.4',
+                ],
+                [
+                    'kind' => 'extension',
+                    'name' => 'Echo',
+                    'version' => '1.45',
+                    'path' => '/srv/mediawiki-staging/versions/1.45/extensions/Echo',
+                    'git' => true,
+                    'ref_type' => 'branch',
+                    'ref' => 'refs/heads/REL1_45',
+                    'commit' => str_repeat('b', 40),
+                    'remote' => 'https://github.com/wikioasis/mediawiki-extensions-Echo.git',
+                ],
+                [
+                    'kind' => 'extension',
+                    'name' => 'HandRolled',
+                    'path' => '/srv/mediawiki-staging/versions/1.45/extensions/HandRolled',
+                    'git' => false,
+                ],
+            ],
+        ];
+
+        $response = $this->actingAs($manager)->postJson(route('api.import.manual'), [
+            'payload' => json_encode($payload),
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('ok', true);
+        $response->assertJsonPath('plan.root', '/srv/mediawiki-staging');
+
+        $keys = collect($response->json('plan.entries'))->pluck('key')->all();
+
+        $this->assertContains('versions/1.45', $keys);
+        $this->assertContains('versions/1.45/extensions/Echo', $keys);
+
+        $unimportable = collect($response->json('plan.entries'))->firstWhere('name', 'HandRolled');
+        $this->assertSame('unimportable', $unimportable['action']);
+
+        $recommended = $response->json('plan.recommended_keys');
+        $this->assertNotEmpty($recommended);
+
+        $this->actingAs($manager)
+            ->postJson(route('api.import.store'), ['keys' => $recommended])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $echo = Repository::query()->where('name', 'Echo')->firstOrFail();
+        $this->assertSame(RepositoryType::Extension, $echo->type);
+        $this->assertSame('https://github.com/wikioasis/mediawiki-extensions-Echo.git', $echo->git_url);
+
+        $checkout = $echo->versions()->firstOrFail();
+        $this->assertSame('REL1_45', $checkout->tracked_ref_value);
+        $this->assertSame(RefType::Branch, $checkout->tracked_ref_type);
+
+        $this->assertSame(
+            '1.45.4',
+            MediaWikiVersion::query()->where('version', '1.45')->firstOrFail()->core_version,
+        );
+    }
+
+    #[Test]
     public function a_manual_paste_rejects_invalid_json_with_a_hint(): void
     {
         $manager = $this->userWithPermissions([Permissions::REPOSITORIES_MANAGE]);

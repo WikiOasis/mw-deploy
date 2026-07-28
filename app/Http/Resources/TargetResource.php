@@ -23,6 +23,9 @@ final class TargetResource extends JsonResource
             // Must equal the Salt minion id exactly: this string is what gets
             // passed as the Salt target.
             'hostname' => $this->hostname,
+            // Pinned by the canary check's curl --resolve; null falls back to the
+            // shim's own 127.0.0.1 default.
+            'ip_address' => $this->ip_address,
             'role' => $this->role->value,
             'role_label' => $this->role->label(),
             'haproxy_backend' => $this->haproxy_backend,

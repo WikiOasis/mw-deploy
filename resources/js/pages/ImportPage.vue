@@ -204,8 +204,7 @@ const apply = async () => {
             </p>
             <button
                 type="button"
-                class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300 disabled:opacity-50"
-                :disabled="loading || busy || scanning"
+                class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
                 @click="manualMode = !manualMode"
             >
                 {{ manualMode ? 'Cancel' : 'Paste JSON instead' }}

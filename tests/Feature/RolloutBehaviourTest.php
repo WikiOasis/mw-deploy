@@ -125,6 +125,40 @@ final class RolloutBehaviourTest extends TestCase
     }
 
     #[Test]
+    public function the_appserver_canary_pins_the_vhost_to_the_targets_ip_when_one_is_set(): void
+    {
+        $server = DeployTarget::factory()->create([
+            'hostname' => 'mw-us-east-011',
+            'ip_address' => '10.0.4.12',
+        ]);
+
+        $this->runJob($this->deployment(new DeploymentOptions(servers: [$server->hostname])));
+
+        $calls = $this->salt->callsFor(StepName::Canary);
+        $appserverCall = collect($calls)->first(fn (SaltCall $call) => $call->target === $server->hostname);
+
+        $this->assertNotNull($appserverCall);
+        $this->assertStringContainsString("'--host' '10.0.4.12'", $appserverCall->command->toString());
+    }
+
+    #[Test]
+    public function the_appserver_canary_omits_host_when_the_target_has_no_ip_recorded(): void
+    {
+        // Without one it falls back to the shim's own 127.0.0.1 default — worth
+        // pinning down so a future change doesn't silently start sending an empty
+        // --host that breaks the check instead of merely not improving it.
+        $server = DeployTarget::factory()->create(['hostname' => 'mw-us-east-011']);
+
+        $this->runJob($this->deployment(new DeploymentOptions(servers: [$server->hostname])));
+
+        $calls = $this->salt->callsFor(StepName::Canary);
+        $appserverCall = collect($calls)->first(fn (SaltCall $call) => $call->target === $server->hostname);
+
+        $this->assertNotNull($appserverCall);
+        $this->assertStringNotContainsString('--host', $appserverCall->command->toString());
+    }
+
+    #[Test]
     public function a_staging_canary_failure_parks_on_a_decision_and_abort_stops_the_rollout(): void
     {
         DeployTarget::factory()->create();

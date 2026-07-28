@@ -432,7 +432,7 @@ final class DeploymentRunner
      */
     private function stagingCanary(Deployment $deployment): bool
     {
-        $call = $this->calls->canary($this->calls->stagingTarget());
+        $call = $this->calls->canary($this->calls->stagingTarget(), host: $this->calls->stagingCanaryHost());
         $step = $this->recorder->begin($call);
         $result = $this->salt->run($call);
         $this->recorder->finish($step, $result);

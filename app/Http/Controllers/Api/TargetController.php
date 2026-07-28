@@ -162,6 +162,9 @@ final class TargetController extends Controller
                 'required', 'string', 'max:190', 'regex:/^[A-Za-z0-9._\-]+$/',
                 Rule::unique('deploy_targets', 'hostname')->ignore($target),
             ],
+            // Pinned by the canary check's curl --resolve, so it exercises this
+            // server rather than falling back to loopback. IPv4 or IPv6, no CIDR.
+            'ip_address' => ['nullable', 'ip'],
             'role' => ['required', Rule::enum(TargetRole::class)],
             'haproxy_backend' => ['nullable', 'string', 'max:190'],
             'haproxy_server_name' => ['nullable', 'string', 'max:190'],

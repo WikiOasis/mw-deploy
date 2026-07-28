@@ -96,7 +96,10 @@ final class DeploymentPlanner
             $planned[] = new PlannedCall('Preparation', $this->calls->l10nRebuild($this->calls->stagingTarget()));
         }
 
-        $planned[] = new PlannedCall('Preparation', $this->calls->canary($this->calls->stagingTarget()));
+        $planned[] = new PlannedCall('Preparation', $this->calls->canary(
+            $this->calls->stagingTarget(),
+            host: $this->calls->stagingCanaryHost(),
+        ));
 
         if ($options->stagingOnly) {
             return $planned;
@@ -130,7 +133,7 @@ final class DeploymentPlanner
 
             $planned[] = new PlannedCall(
                 $phase,
-                $this->calls->canary($server->hostname, $server->canaryVhost()),
+                $this->calls->canary($server->hostname, $server->canaryVhost(), host: $server->canaryHost()),
             );
 
             if ($options->rollout) {

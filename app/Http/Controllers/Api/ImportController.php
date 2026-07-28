@@ -155,7 +155,7 @@ final class ImportController extends Controller
             ], 422);
         }
 
-        $scan = TreeScan::fromPayload($root, $decoded);
+        $scan = TreeScan::fromPayload($root, $this->normalizeShimPayload($decoded, $root));
 
         if ($scan->checkouts->isEmpty()) {
             return response()->json([
@@ -168,6 +168,94 @@ final class ImportController extends Controller
         $scanner->cacheManual($scan);
 
         return $this->respondWithPlan($scan, $planner, $apply);
+    }
+
+    /**
+     * Some fleets are still running a shim old enough to report tree-scan
+     * results under `checkouts` rather than `entries` — a flat shape, absolute
+     * paths, and `git`/`remote`/`ref_type` as top-level scalars instead of a
+     * nested `git` object. TreeScan::fromPayload() only understands the current
+     * shape, so a manually-pasted legacy result is translated here rather than
+     * teaching the trusted Salt-fed path (which always sees the current shim's
+     * output) to tolerate a format it will never actually receive.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function normalizeShimPayload(array $payload, string $root): array
+    {
+        if (isset($payload['entries'])) {
+            return $payload;
+        }
+
+        if (! is_array($payload['checkouts'] ?? null)) {
+            return $payload;
+        }
+
+        $root = rtrim((string) ($payload['root'] ?? $root), '/');
+        $versions = [];
+        $entries = [];
+
+        foreach ($payload['checkouts'] as $checkout) {
+            if (! is_array($checkout)) {
+                continue;
+            }
+
+            $path = (string) ($checkout['path'] ?? '');
+
+            // The legacy shim reports paths relative to nothing in particular —
+            // usually absolute, sometimes already root-relative. Strip the root
+            // prefix when present; leave it alone otherwise.
+            if ($root !== '' && str_starts_with($path, $root)) {
+                $path = ltrim(substr($path, strlen($root)), '/');
+            } else {
+                $path = ltrim($path, '/');
+            }
+
+            $kind = (string) ($checkout['kind'] ?? '');
+            $version = isset($checkout['version']) ? (string) $checkout['version'] : null;
+
+            // "refs/heads/REL1_45" / "refs/tags/x" collapse to the short name
+            // ScannedCheckout/RefType already know how to read.
+            $ref = (string) ($checkout['ref'] ?? '');
+            $ref = preg_replace('#^refs/(heads|tags)/#', '', $ref) ?? $ref;
+            $ref = $ref !== '' ? $ref : null;
+
+            $refType = is_string($checkout['ref_type'] ?? null) ? $checkout['ref_type'] : null;
+
+            if ($kind === 'core' && $version !== null) {
+                $versions[] = $version;
+            }
+
+            // `git` is a plain boolean here ("is this a git checkout at all"),
+            // unlike the current shim's nested object — everything else about
+            // the remote is these flat sibling fields instead.
+            $isGit = (bool) ($checkout['git'] ?? false);
+
+            $entries[] = [
+                'kind' => $kind,
+                'name' => (string) ($checkout['name'] ?? ''),
+                'path' => $path,
+                'version' => $version,
+                'is_git' => $isGit,
+                'core_version' => $checkout['mw_version'] ?? $checkout['core_version'] ?? null,
+                'git' => $isGit ? [
+                    'url' => $checkout['remote'] ?? null,
+                    'ref_type' => $refType,
+                    'ref' => $ref,
+                    'commit' => $checkout['commit'] ?? null,
+                    'branch' => $refType === 'branch' ? $ref : null,
+                ] : [],
+            ];
+        }
+
+        return [
+            'root' => $root !== '' ? $root : (string) ($payload['root'] ?? ''),
+            'versions' => array_values(array_unique($versions)),
+            'entries' => $entries,
+            'warnings' => is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [],
+            'shim_version' => is_string($payload['shim_version'] ?? null) ? $payload['shim_version'] : null,
+        ];
     }
 
     /**

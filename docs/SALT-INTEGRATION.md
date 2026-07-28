@@ -897,11 +897,22 @@ There is no importer; add them through the Targets screen. Per target:
 | Field | Value |
 |---|---|
 | `hostname` | the minion id from `salt-key -L` — **not** the FQDN unless they are the same |
+| `ip_address` | appservers (and staging, via `MWDEPLOY_STAGING_IP`), if the canary vhost's web server does not listen on `127.0.0.1` |
 | `role` | `appserver`, `proxy`, or `staging` |
 | `haproxy_server_name` | appservers only, if HAProxy's `server` label differs from the minion id (fact 6) |
 | `haproxy_backend` | proxies only, if it differs from `MWDEPLOY_HAPROXY_BACKEND` |
 | `canary_vhost` | appservers only, if it differs from the global default |
 | `sort_order` | rollout order, lowest first |
+
+`ip_address` matters more than it looks: the canary check pins its vhost to an
+address with `curl --resolve {vhost}:{port}:{host}`, so it exercises *this*
+server rather than whatever DNS or the proxy would otherwise have picked. Left
+blank, the shim's `--host` falls back to `127.0.0.1` — fine when the appserver's
+web server listens on loopback, but on a fleet where it doesn't, every canary on
+that target fails to connect at all (`curl` exit 7, HTTP status `000`), which
+looks nothing like a content mismatch and is easy to misdiagnose as one. If a
+canary is failing with `status=000` rather than `marker=missing`, this is the
+first thing to check.
 
 **If the salt repo is the source of truth for fleet membership** — and it probably
 is — a small artisan command that reads a pillar and upserts `deploy_targets` would
