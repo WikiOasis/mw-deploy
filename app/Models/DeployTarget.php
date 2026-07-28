@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 #[Fillable([
-    'hostname', 'role', 'haproxy_backend', 'haproxy_server_name',
+    'hostname', 'ip_address', 'role', 'haproxy_backend', 'haproxy_server_name',
     'canary_vhost', 'active', 'sort_order',
 ])]
 class DeployTarget extends Model
@@ -49,5 +49,16 @@ class DeployTarget extends Model
     public function canaryVhost(): string
     {
         return $this->canary_vhost ?: (string) config('mwdeploy.rollout.canary_vhost');
+    }
+
+    /**
+     * Address the canary check pins its vhost to with curl --resolve, so it
+     * actually exercises this server. Null falls back to the shim's own
+     * 127.0.0.1 default, which only works when the web server listens on
+     * loopback.
+     */
+    public function canaryHost(): ?string
+    {
+        return $this->ip_address ?: null;
     }
 }

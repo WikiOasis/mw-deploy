@@ -24,6 +24,7 @@ const editing = ref(null);
 
 const form = ref({
     hostname: '',
+    ip_address: '',
     role: 'appserver',
     haproxy_backend: '',
     haproxy_server_name: '',
@@ -69,6 +70,7 @@ const open = (target = null) => {
     form.value = target
         ? {
               hostname: target.hostname,
+              ip_address: target.ip_address ?? '',
               role: target.role,
               haproxy_backend: target.haproxy_backend ?? '',
               haproxy_server_name: target.haproxy_server_name ?? '',
@@ -78,6 +80,7 @@ const open = (target = null) => {
           }
         : {
               hostname: '',
+              ip_address: '',
               role: 'appserver',
               haproxy_backend: '',
               haproxy_server_name: '',
@@ -93,6 +96,7 @@ const submit = async () => {
 
     const body = {
         ...form.value,
+        ip_address: form.value.ip_address || null,
         haproxy_backend: form.value.haproxy_backend || null,
         haproxy_server_name: form.value.haproxy_server_name || null,
         canary_vhost: form.value.canary_vhost || null,
@@ -179,6 +183,7 @@ const pool = async (target, action) => {
                         <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
                             <tr>
                                 <th class="px-5 py-2">Hostname</th>
+                                <th class="px-5 py-2">IP address</th>
                                 <th class="px-5 py-2">HAProxy</th>
                                 <th class="px-5 py-2">Canary vhost</th>
                                 <th class="px-5 py-2">State</th>
@@ -188,6 +193,10 @@ const pool = async (target, action) => {
                         <tbody class="divide-y divide-slate-100">
                             <tr v-for="target in targets" :key="target.id">
                                 <td class="px-5 py-2 font-mono text-xs">{{ target.hostname }}</td>
+                                <td class="px-5 py-2 font-mono text-xs">
+                                    <span v-if="target.ip_address">{{ target.ip_address }}</span>
+                                    <span v-else class="text-slate-400">canary uses 127.0.0.1</span>
+                                </td>
                                 <td class="px-5 py-2 text-xs">
                                     <span class="text-slate-500">backend</span>
                                     {{ target.haproxy_backend ?? data.settings.haproxy_backend }}
@@ -257,6 +266,19 @@ const pool = async (target, action) => {
                     <input
                         v-model="form.hostname"
                         type="text"
+                        class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                    />
+                </FormField>
+
+                <FormField
+                    label="IP address"
+                    :error="errors.ip_address?.[0]"
+                    hint="Optional; the canary check pins its vhost to this address. Without it, the check falls back to 127.0.0.1 and only works if this server's web server listens on loopback."
+                >
+                    <input
+                        v-model="form.ip_address"
+                        type="text"
+                        placeholder="e.g. 10.0.4.12"
                         class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
                     />
                 </FormField>

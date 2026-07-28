@@ -217,6 +217,12 @@ return [
         // Minion id of the staging host. Every preparation step (git checkout,
         // patching, local rsync, staging canary) runs here.
         'staging' => env('MWDEPLOY_STAGING_TARGET', 'staging'),
+
+        // Address the staging canary pins its vhost to with curl --resolve.
+        // Left unset, the shim falls back to 127.0.0.1 — fine as long as the
+        // staging host's web server listens on loopback, but if it doesn't the
+        // canary fails to connect at all rather than reporting a content problem.
+        'staging_ip' => env('MWDEPLOY_STAGING_IP'),
     ],
 
     /*

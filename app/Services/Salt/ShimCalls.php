@@ -29,6 +29,19 @@ final class ShimCalls
         return (string) config('mwdeploy.targets.staging');
     }
 
+    /**
+     * Address the staging canary pins its vhost to, if the staging host's web
+     * server doesn't listen on loopback. Most staging boxes do, so this is
+     * usually left unset — see DeployTarget::canaryHost() for appservers, which
+     * have their own per-target IP instead of a single config value.
+     */
+    public function stagingCanaryHost(): ?string
+    {
+        $host = trim((string) config('mwdeploy.targets.staging_ip'));
+
+        return $host === '' ? null : $host;
+    }
+
     public function stagingRoot(): string
     {
         return rtrim((string) config('mwdeploy.paths.staging'), '/');
@@ -374,7 +387,14 @@ final class ShimCalls
      * One canary result, no interactive prompt: there is no TTY under Salt, and
      * the retry-then-ask logic lives in the job.
      */
-    public function canary(string $hostname, ?string $vhost = null, ?int $retries = null, ?string $expect = null): SaltCall
+    /**
+     * $host is the address curl pins the vhost to (--resolve), so the check
+     * exercises this specific server rather than whatever DNS or the proxy would
+     * otherwise have picked. Left null, the shim falls back to 127.0.0.1, which
+     * only works when the appserver's web server happens to listen on loopback —
+     * pass the target's real IP whenever one is known.
+     */
+    public function canary(string $hostname, ?string $vhost = null, ?int $retries = null, ?string $expect = null, ?string $host = null): SaltCall
     {
         $vhost ??= (string) config('mwdeploy.rollout.canary_vhost');
 
@@ -383,7 +403,8 @@ final class ShimCalls
             command: ShimCommand::make(StepName::Canary)
                 ->option('vhost', $vhost)
                 ->option('retries', $retries ?? (int) config('mwdeploy.rollout.canary_retries'))
-                ->optionalOption('expect', $expect ?? (string) config('mwdeploy.rollout.canary_expect')),
+                ->optionalOption('expect', $expect ?? (string) config('mwdeploy.rollout.canary_expect'))
+                ->optionalOption('host', $host),
             subject: $vhost,
         );
     }

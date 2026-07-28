@@ -93,7 +93,11 @@ final class ServerPipeline
         // The pool converts a canary failure into a blocking prompt (or honours
         // --force) before deciding what to send back.
         if (! $failed) {
-            $outcome = yield $this->calls->canary($this->server->hostname, $this->server->canaryVhost());
+            $outcome = yield $this->calls->canary(
+                $this->server->hostname,
+                $this->server->canaryVhost(),
+                host: $this->server->canaryHost(),
+            );
             $failed = ! $outcome->proceed;
         }
 
