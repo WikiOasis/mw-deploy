@@ -641,6 +641,46 @@ class CanaryTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("after 2 attempt", payload["error"])
 
+    def test_it_connects_directly_and_sends_the_vhost_as_a_host_header(self):
+        # The check must work purely from a Host header — no DNS entry, real or
+        # fake, exists anywhere for this vhost. If the shim ever went back to
+        # resolving/pinning it instead, this would fail to connect exactly like
+        # the bug it replaced.
+        import http.server
+
+        received_host = {}
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                received_host["value"] = self.headers.get("Host")
+                body = b'<meta name="generator" content="MediaWiki 1.45.0"/>'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            code, payload, _ = run_shim(
+                "canary", "--vhost", "canary.invalid", "--host", "127.0.0.1",
+                "--port", str(port), "--scheme", "http",
+                "--expect", 'content="MediaWiki', "--retries", "1", "--timeout", "5",
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["ok"])
+        self.assertEqual("canary.invalid", received_host["value"])
+
     def test_it_never_waits_for_input(self):
         # There is no TTY under `salt cmd.run`; the retry/prompt decision belongs
         # to the portal. Closing stdin must not hang the check.

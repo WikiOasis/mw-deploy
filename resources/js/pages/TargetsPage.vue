@@ -273,7 +273,7 @@ const pool = async (target, action) => {
                 <FormField
                     label="IP address"
                     :error="errors.ip_address?.[0]"
-                    hint="Optional; the canary check pins its vhost to this address. Without it, the check falls back to 127.0.0.1 and only works if this server's web server listens on loopback."
+                    hint="Optional; the canary check connects here directly and sends the vhost as a Host header. Without it, the check falls back to 127.0.0.1 and only works if this server's web server listens on loopback."
                 >
                     <input
                         v-model="form.ip_address"

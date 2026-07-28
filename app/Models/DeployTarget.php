@@ -52,10 +52,10 @@ class DeployTarget extends Model
     }
 
     /**
-     * Address the canary check pins its vhost to with curl --resolve, so it
-     * actually exercises this server. Null falls back to the shim's own
-     * 127.0.0.1 default, which only works when the web server listens on
-     * loopback.
+     * Address the canary check connects to directly, sending the vhost as a
+     * Host header rather than resolving it. Null falls back to the shim's own
+     * 127.0.0.1 default, which only works when this server's web server
+     * listens on loopback.
      */
     public function canaryHost(): ?string
     {
