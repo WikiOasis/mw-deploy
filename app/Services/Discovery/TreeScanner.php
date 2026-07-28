@@ -55,9 +55,17 @@ final class TreeScanner
      */
     public function cached(array $versions = []): ?TreeScan
     {
-        $cached = Cache::get($this->cacheKey($versions));
+        return $this->scanFromCache(Cache::get($this->cacheKey($versions)));
+    }
 
-        return $cached instanceof TreeScan ? $cached : null;
+    /**
+     * Rebuild a TreeScan from whatever cached() / pollScan() found — always the
+     * plain toCacheArray() shape, never the object itself. See toCacheArray()'s
+     * docblock for why the object form can't survive a real cache store here.
+     */
+    private function scanFromCache(mixed $cached): ?TreeScan
+    {
+        return is_array($cached) ? TreeScan::fromPayload((string) ($cached['root'] ?? ''), $cached) : null;
     }
 
     /**
@@ -140,9 +148,9 @@ final class TreeScanner
             throw new ScanFailed('This scan has expired or never existed. Start a new one.');
         }
 
-        $cachedScan = $record['scan'] ?? null;
+        $cachedScan = $this->scanFromCache($record['scan'] ?? null);
 
-        if ($cachedScan instanceof TreeScan) {
+        if ($cachedScan !== null) {
             return $cachedScan;
         }
 
@@ -183,14 +191,14 @@ final class TreeScanner
 
         $scan = TreeScan::fromPayload($record['root'], $result->payload);
 
-        $record['scan'] = $scan;
+        $record['scan'] = $scan->toCacheArray();
         Cache::put($key, $record, self::CACHE_TTL_SECONDS);
 
         // An older scan finishing after a newer one must not clobber the shared
         // cache with a stale picture of the tree — only write it while this scan
         // is still the one startScan() would hand back for this root/versions.
         if (Cache::get($this->inflightKey($record['versions'])) === $scanId) {
-            Cache::put($this->cacheKey($record['versions']), $scan, self::CACHE_TTL_SECONDS);
+            Cache::put($this->cacheKey($record['versions']), $scan->toCacheArray(), self::CACHE_TTL_SECONDS);
         }
 
         return $scan;
@@ -207,9 +215,9 @@ final class TreeScanner
         $key = $this->cacheKey($versions);
 
         if (! $fresh) {
-            $cached = Cache::get($key);
+            $cached = $this->scanFromCache(Cache::get($key));
 
-            if ($cached instanceof TreeScan) {
+            if ($cached !== null) {
                 return $cached;
             }
         }
@@ -237,7 +245,7 @@ final class TreeScanner
 
         $scan = TreeScan::fromPayload($root, $result->payload);
 
-        Cache::put($key, $scan, self::CACHE_TTL_SECONDS);
+        Cache::put($key, $scan->toCacheArray(), self::CACHE_TTL_SECONDS);
 
         return $scan;
     }
@@ -308,7 +316,7 @@ final class TreeScanner
     {
         $scanId = (string) Str::uuid();
 
-        Cache::put(self::ASYNC_CACHE_PREFIX.$scanId, ['scan' => $scan], self::CACHE_TTL_SECONDS);
+        Cache::put(self::ASYNC_CACHE_PREFIX.$scanId, ['scan' => $scan->toCacheArray()], self::CACHE_TTL_SECONDS);
 
         return $scanId;
     }

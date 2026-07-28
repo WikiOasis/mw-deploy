@@ -23,6 +23,8 @@ use App\Services\Salt\SaltAsyncStartFailed;
 use App\Services\Salt\Testing\FakeSaltClient;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -630,6 +632,57 @@ final class TreeImportTest extends TestCase
 
         $this->assertSame([], $this->salt->stepSequence());
         $this->assertSame(2, Repository::query()->count());
+    }
+
+    #[Test]
+    public function scans_survive_a_cache_store_that_actually_serializes(): void
+    {
+        // The test suite normally runs on CACHE_STORE=array, which never really
+        // serializes anything — a cached TreeScan is just the same PHP object
+        // handed back. Production defaults to a real store (database/file/
+        // redis), and this app's config('cache.serializable_classes') is false
+        // (a security default blocking cache-poisoning object injection), which
+        // makes every one of those stores silently downgrade any cached object
+        // to __PHP_Incomplete_Class on the way back out — instanceof TreeScan
+        // then always fails. Switching to the file store here is what catches
+        // that a scan is being cached as a plain array, not as the object.
+        Config::set('cache.default', 'file');
+        Cache::forgetDriver('file');
+
+        $manager = $this->userWithPermissions([Permissions::REPOSITORIES_MANAGE]);
+
+        // The real-Salt-scan path: startScan()/pollScan() round-trip a TreeScan
+        // through the cache exactly like the async poller does.
+        $this->respondWithScan();
+
+        $first = $this->actingAs($manager)->getJson(route('api.import.show', ['fresh' => 1]))->assertOk();
+        // Read again with no scan param: this hits cached() rather than pollScan().
+        $second = $this->actingAs($manager)->getJson(route('api.import.show'))->assertOk();
+
+        $this->assertSame($first->json('plan.root'), $second->json('plan.root'));
+        $this->assertNotEmpty($second->json('plan.recommended_keys'));
+
+        // The manual-paste path: cacheManual() plus a store() that resolves it
+        // purely by scan_id, same as ImportPage.vue's apply() does.
+        $payload = [
+            'root' => rtrim((string) config('mwdeploy.paths.staging'), '/'),
+            'versions' => ['1.45'],
+            'entries' => [$this->coreEntry('1.45')],
+            'warnings' => [],
+        ];
+
+        $manual = $this->actingAs($manager)->postJson(route('api.import.manual'), [
+            'payload' => json_encode($payload),
+        ])->assertOk();
+
+        $this->actingAs($manager)
+            ->postJson(route('api.import.store'), [
+                'keys' => $manual->json('plan.recommended_keys'),
+                'scan_id' => $manual->json('scan_id'),
+            ])
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('status', 'done');
     }
 
     #[Test]

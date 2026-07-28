@@ -55,6 +55,34 @@ final readonly class TreeScan
     }
 
     /**
+     * The inverse of fromPayload() — a plain array of strings/scalars a cache
+     * store can always faithfully round-trip.
+     *
+     * `config('cache.serializable_classes')` is `false` in this app (a Laravel
+     * security default: it stops a poisoned cache entry from instantiating
+     * arbitrary objects), which means every real cache backend — database,
+     * file, redis, anything but the in-memory array store the tests use —
+     * quietly turns a cached TreeScan back into `__PHP_Incomplete_Class` on
+     * read, not a real TreeScan. `instanceof TreeScan` then always fails, so
+     * nothing may ever cache the object itself; round-tripping through this
+     * array plus fromPayload() is the only shape that survives the trip.
+     *
+     * @return array<string, mixed>
+     */
+    public function toCacheArray(): array
+    {
+        return [
+            'root' => $this->root,
+            'entries' => $this->checkouts->map(
+                static fn (ScannedCheckout $checkout): array => $checkout->toEntryArray(),
+            )->all(),
+            'versions' => $this->versions,
+            'warnings' => $this->warnings,
+            'shim_version' => $this->shimVersion,
+        ];
+    }
+
+    /**
      * @return Collection<int, ScannedCheckout>
      */
     public function ofType(RepositoryType $type): Collection
