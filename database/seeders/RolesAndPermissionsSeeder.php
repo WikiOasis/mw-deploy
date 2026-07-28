@@ -44,7 +44,7 @@ final class RolesAndPermissionsSeeder extends Seeder
         'beta' => [
             'description' => 'Can deploy to beta',
             'permissions' => [
-                P::DEPLOY_CORE, P::DEPLOY_EXTENSION, P::DEPLOY_SKIN, P::DEPLOY_CONFIG
+                P::DEPLOY_CORE, P::DEPLOY_EXTENSION, P::DEPLOY_SKIN, P::DEPLOY_CONFIG,
                 P::DEPLOY_ROLLBACK, P::DEPLOY_DECIDE, P::DEPLOY_FORCE_FLAG
             ],
         ],
