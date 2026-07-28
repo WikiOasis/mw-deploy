@@ -93,6 +93,24 @@ final class SaltSubprocessTest extends TestCase
         $this->assertStringContainsString('/definitely/not/here/salt', (string) $result->error);
     }
 
+    #[Test]
+    public function startasync_parses_the_job_id_from_salts_plain_text_kickoff_line(): void
+    {
+        // Real Salt prints "Executed command with job ID: <jid>" for an async
+        // kickoff via a bare print() ahead of the outputter — --out=json does not
+        // change this. A parser that only accepts {"jid": ...} would wrongly
+        // report that the local CLI never ran, even though it started the job.
+        file_put_contents($this->stub, <<<'SH'
+            #!/bin/sh
+            echo 'Executed command with job ID: 20260728063431111119'
+            SH);
+        chmod($this->stub, 0755);
+
+        $jid = app(ProcessSaltClient::class)->startAsync($this->gitHeadCall());
+
+        $this->assertSame('20260728063431111119', $jid);
+    }
+
     private function gitHeadCall(): SaltCall
     {
         return new SaltCall(
