@@ -123,6 +123,12 @@ WorkingDirectory=/srv/deploy-portal
 # its rsyncs and l10n rebuilds take, and a worker timeout mid-rollout would leave
 # the fleet half-updated.
 # --tries=1 because a deployment is not safely retryable from the top.
+# --timeout=0 only stops this *process* from killing the job. The queue
+# connection's own retry_after (config/queue.php, default 90s) separately
+# assumes an unfinished job died and redelivers it — which then fails outright
+# with "has been attempted too many times or run too long" since tries=1.
+# DB_QUEUE_RETRY_AFTER (or REDIS_QUEUE_RETRY_AFTER, if that connection is used)
+# must be set well past the longest deployment, not just this flag.
 ExecStart=/usr/bin/php artisan queue:work --queue=default --tries=1 --timeout=0 --sleep=1
 Restart=always
 RestartSec=5

@@ -499,12 +499,17 @@ final class TreeImportTest extends TestCase
         $keys = $response->json('plan.recommended_keys');
         $this->assertNotEmpty($keys);
 
+        // Round-tripping the scan id the manual paste was handed back matters here:
+        // it is what lets apply() find this exact scan instead of falling back to
+        // starting a real one (which would defeat the point of pasting in the
+        // first place).
         $this->actingAs($manager)
-            ->postJson(route('api.import.store'), ['keys' => $keys])
+            ->postJson(route('api.import.store'), ['keys' => $keys, 'scan_id' => $response->json('scan_id')])
             ->assertOk()
             ->assertJsonPath('ok', true);
 
         $this->assertSame(2, Repository::query()->count()); // mediawiki, Echo
+        $this->assertSame([], $this->salt->stepSequence());
     }
 
     #[Test]
@@ -572,7 +577,7 @@ final class TreeImportTest extends TestCase
         $this->assertNotEmpty($recommended);
 
         $this->actingAs($manager)
-            ->postJson(route('api.import.store'), ['keys' => $recommended])
+            ->postJson(route('api.import.store'), ['keys' => $recommended, 'scan_id' => $response->json('scan_id')])
             ->assertOk()
             ->assertJsonPath('ok', true);
 
@@ -588,6 +593,43 @@ final class TreeImportTest extends TestCase
             '1.45.4',
             MediaWikiVersion::query()->where('version', '1.45')->firstOrFail()->core_version,
         );
+    }
+
+    #[Test]
+    public function applying_a_manual_paste_never_falls_back_to_a_real_scan_even_if_the_shared_cache_is_gone(): void
+    {
+        $manager = $this->userWithPermissions([Permissions::REPOSITORIES_MANAGE]);
+
+        $payload = [
+            'root' => rtrim((string) config('mwdeploy.paths.staging'), '/'),
+            'versions' => ['1.45'],
+            'entries' => [$this->coreEntry('1.45'), $this->echoEntry('1.45', 'REL1_45')],
+            'warnings' => [],
+        ];
+
+        $response = $this->actingAs($manager)->postJson(route('api.import.manual'), [
+            'payload' => json_encode($payload),
+        ]);
+
+        $scanId = $response->json('scan_id');
+        $this->assertNotNull($scanId);
+
+        // Simulate the generic scan cache having moved on for whatever reason
+        // (a concurrent real scan, TTL churn) — the manual scan must still be
+        // found by its own id rather than the apply step silently starting a
+        // brand-new Salt scan, which is exactly what manual mode exists to avoid.
+        app(TreeScanner::class)->forget();
+
+        $keys = $response->json('plan.recommended_keys');
+
+        $this->actingAs($manager)
+            ->postJson(route('api.import.store'), ['keys' => $keys, 'scan_id' => $scanId])
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('status', 'done');
+
+        $this->assertSame([], $this->salt->stepSequence());
+        $this->assertSame(2, Repository::query()->count());
     }
 
     #[Test]

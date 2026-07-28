@@ -165,9 +165,9 @@ final class ImportController extends Controller
             ], 422);
         }
 
-        $scanner->cacheManual($scan);
+        $scanId = $scanner->cacheManual($scan);
 
-        return $this->respondWithPlan($scan, $planner, $apply);
+        return $this->respondWithPlan($scan, $planner, $apply, $scanId);
     }
 
     /**
