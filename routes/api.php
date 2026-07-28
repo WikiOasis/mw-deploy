@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\DeploymentDecisionController;
 use App\Http\Controllers\Api\DeploymentWizardController;
 use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\PatchController;
+use App\Http\Controllers\Api\RepoBrowserController;
 use App\Http\Controllers\Api\RepositoryController;
 use App\Http\Controllers\Api\TargetController;
 use App\Http\Controllers\Api\UserController;
@@ -62,10 +63,14 @@ Route::get('repositories/{repository}', [RepositoryController::class, 'show'])->
 Route::put('repositories/{repository}', [RepositoryController::class, 'update'])->name('api.repositories.update');
 Route::delete('repositories/{repository}', [RepositoryController::class, 'destroy'])->name('api.repositories.destroy');
 Route::get('checkouts/{checkout}/refs', [RepositoryController::class, 'refs'])->name('api.checkouts.refs');
+Route::post('checkouts/{checkout}/refs/fetch', [RepositoryController::class, 'fetchRefs'])->name('api.checkouts.refs.fetch');
+Route::get('checkouts/{checkout}/tree', [RepoBrowserController::class, 'tree'])->name('api.checkouts.tree');
+Route::get('checkouts/{checkout}/blob', [RepoBrowserController::class, 'blob'])->name('api.checkouts.blob');
 
 // Adopting a farm that already exists: GET plans, POST applies.
 Route::get('import', [ImportController::class, 'show'])->name('api.import.show');
 Route::post('import', [ImportController::class, 'store'])->name('api.import.store');
+Route::post('import/manual', [ImportController::class, 'manual'])->name('api.import.manual');
 
 // Patches.
 Route::get('patches', [PatchController::class, 'index'])->name('api.patches.index');

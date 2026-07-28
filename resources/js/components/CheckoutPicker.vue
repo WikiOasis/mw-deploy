@@ -2,7 +2,8 @@
 import { computed, reactive, ref } from 'vue';
 
 import { api, endpoint } from '../api';
-import { shortRef } from '../format';
+import { relative, shortRef } from '../format';
+import SearchableCombobox from './SearchableCombobox.vue';
 import StatusBadge from './StatusBadge.vue';
 
 /**
@@ -26,9 +27,13 @@ const emit = defineEmits(['update:modelValue']);
 const isUndeploy = computed(() => props.intent === 'undeploy');
 const filter = ref('');
 
-/** Lazily loaded commit lists, per checkout. */
+/** Lazily loaded branches/commits/fetch metadata, per checkout. */
 const commits = reactive({});
+const branches = reactive({});
+const fetchedAt = reactive({});
 const loadingCommits = reactive({});
+const loadingBranches = reactive({});
+const fetching = reactive({});
 
 const byType = computed(() =>
     props.types
@@ -70,6 +75,10 @@ const select = (checkout) => {
             refValue: isUndeploy.value ? null : (checkout.resolved_ref ?? ''),
         },
     });
+
+    if (!isUndeploy.value && branches[checkout.id] === undefined) {
+        loadBranches(checkout);
+    }
 };
 
 const deselect = (checkout) => {
@@ -124,6 +133,8 @@ const setRefType = async (checkout, refType) => {
 
     if (refType === 'commit' && commits[checkout.id] === undefined) {
         await loadCommits(checkout, current?.refValue || checkout.resolved_ref);
+    } else if (refType === 'branch' && branches[checkout.id] === undefined) {
+        await loadBranches(checkout);
     }
 };
 
@@ -148,12 +159,52 @@ const loadCommits = async (checkout, branch) => {
         });
 
         commits[checkout.id] = payload.commits ?? [];
+        fetchedAt[checkout.id] = payload.fetched_at ?? fetchedAt[checkout.id] ?? null;
     } catch {
         // Ref discovery is a convenience: the free-text field still works, so a
         // failed listing degrades to typing the SHA rather than blocking.
         commits[checkout.id] = [];
     } finally {
         loadingCommits[checkout.id] = false;
+    }
+};
+
+const loadBranches = async (checkout) => {
+    loadingBranches[checkout.id] = true;
+
+    try {
+        const payload = await api.get(endpoint(`checkouts/${checkout.id}/refs`));
+
+        branches[checkout.id] = payload.branches ?? [];
+        fetchedAt[checkout.id] = payload.fetched_at ?? fetchedAt[checkout.id] ?? null;
+    } catch {
+        branches[checkout.id] = [];
+    } finally {
+        loadingBranches[checkout.id] = false;
+    }
+};
+
+/**
+ * Bypasses the persistent ref cache server-side (see CachedGitRefProvider) and
+ * refreshes whichever list is on screen in place.
+ */
+const fetchLatest = async (checkout) => {
+    fetching[checkout.id] = true;
+
+    try {
+        const branch = selection.value[checkout.id]?.refType === 'branch' ? selection.value[checkout.id].refValue : null;
+        const payload = await api.post(endpoint(`checkouts/${checkout.id}/refs/fetch`), {}, {
+            params: branch ? { branch } : {},
+        });
+
+        branches[checkout.id] = payload.branches ?? [];
+        commits[checkout.id] = payload.commits ?? [];
+        fetchedAt[checkout.id] = payload.fetched_at ?? null;
+    } catch {
+        // "Fetch latest" is a convenience on top of the cache; leaving the
+        // existing list in place beats clearing it out on a transient failure.
+    } finally {
+        fetching[checkout.id] = false;
     }
 };
 
@@ -285,40 +336,37 @@ const selectedCountFor = (repository) =>
                                     </div>
 
                                     <div v-if="selection[checkout.id].refType === 'branch'" class="w-72">
-                                        <input
-                                            type="text"
-                                            :value="selection[checkout.id].refValue"
+                                        <SearchableCombobox
+                                            :model-value="selection[checkout.id].refValue"
+                                            :options="branches[checkout.id] ?? []"
+                                            :loading="loadingBranches[checkout.id]"
                                             :placeholder="checkout.resolved_ref ?? 'branch name'"
-                                            class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
-                                            @input="setRefValue(checkout, $event.target.value)"
+                                            empty-label="No matching branch — free text is still accepted"
+                                            @update:model-value="(value) => setRefValue(checkout, value)"
                                         />
                                     </div>
 
-                                    <div v-else class="w-96 space-y-2">
-                                        <select
-                                            :value="selection[checkout.id].refValue"
-                                            class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
-                                            @change="setRefValue(checkout, $event.target.value)"
-                                        >
-                                            <option value="">— pick a recent commit —</option>
-                                            <option
-                                                v-for="commit in commits[checkout.id] ?? []"
-                                                :key="commit.value"
-                                                :value="commit.value"
-                                            >
-                                                {{ commit.label }}
-                                            </option>
-                                        </select>
-                                        <input
-                                            type="text"
-                                            :value="selection[checkout.id].refValue"
-                                            placeholder="…or paste a commit SHA"
-                                            class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
-                                            @input="setRefValue(checkout, $event.target.value)"
+                                    <div v-else class="w-96">
+                                        <SearchableCombobox
+                                            :model-value="selection[checkout.id].refValue"
+                                            :options="(commits[checkout.id] ?? []).map((commit) => ({ value: commit.value, label: commit.label }))"
+                                            :loading="loadingCommits[checkout.id]"
+                                            placeholder="Search recent commits, or paste a SHA"
+                                            empty-label="No matching commit — a pasted SHA is still accepted"
+                                            @update:model-value="(value) => setRefValue(checkout, value)"
                                         />
-                                        <p v-if="loadingCommits[checkout.id]" class="text-xs text-slate-500">
-                                            Loading commits…
-                                        </p>
+                                    </div>
+
+                                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                                        <button
+                                            type="button"
+                                            class="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 disabled:opacity-50"
+                                            :disabled="fetching[checkout.id]"
+                                            @click="fetchLatest(checkout)"
+                                        >
+                                            {{ fetching[checkout.id] ? 'Fetching…' : 'Fetch latest' }}
+                                        </button>
+                                        <span v-if="fetchedAt[checkout.id]">fetched {{ relative(fetchedAt[checkout.id]) }}</span>
                                     </div>
                                 </div>
                             </li>

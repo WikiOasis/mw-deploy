@@ -78,8 +78,12 @@ return [
         'timeouts' => [
             'git-checkout' => 300,
             'git-pull' => 300,
+            'git-fetch' => 300,
             'git-head' => 60,
             'git-refs' => 120,
+            'git-resolve' => 60,
+            'git-ls-tree' => 60,
+            'git-show-blob' => 60,
             'git-remote-check' => 120,
             // A farm scan walks several hundred directories and reads a manifest
             // out of each. It is all local file I/O with no subprocesses, but the
@@ -232,6 +236,12 @@ return [
         'canary_vhost' => env('MWDEPLOY_CANARY_VHOST', 'meta.wikioasis.org'),
         'canary_retries' => (int) env('MWDEPLOY_CANARY_RETRIES', 3),
 
+        // Case-insensitive marker expected in the canary body. Every successful
+        // MediaWiki skin render emits <meta name="generator" content="MediaWiki
+        // x.xx.x">, regardless of the wiki's own branding or sitename — unlike a
+        // hardcoded site name, this default is correct for any vhost.
+        'canary_expect' => env('MWDEPLOY_CANARY_EXPECT', 'content="MediaWiki'),
+
         // Wiki used for l10n cache rebuild smoke runs.
         'l10n_wiki' => env('MWDEPLOY_L10N_WIKI', 'testwiki'),
     ],
@@ -279,6 +289,15 @@ return [
         'commit_limit' => (int) env('MWDEPLOY_GIT_COMMIT_LIMIT', 30),
         'binary' => env('MWDEPLOY_GIT_BINARY', '/usr/bin/git'),
         'process_timeout' => (int) env('MWDEPLOY_GIT_TIMEOUT', 60),
+
+        // Ceiling on a blob read by the file browser. Matches the shim's own
+        // --max-bytes default; kept here too so the Local driver (which never
+        // goes through the shim) enforces the same cap.
+        'blob_max_bytes' => (int) env('MWDEPLOY_GIT_BLOB_MAX_BYTES', 2 * 1024 * 1024),
+
+        // Blob content above this size is written to storage/app/git-file-cache
+        // instead of the git_file_cache_entries.payload JSON column.
+        'blob_disk_threshold' => (int) env('MWDEPLOY_GIT_BLOB_DISK_THRESHOLD', 65536),
     ],
 
 ];

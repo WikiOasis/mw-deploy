@@ -292,6 +292,99 @@ class GitSubcommandTest(unittest.TestCase):
 
         self.assertEqual("on feature", payload["refs"][0]["subject"])
 
+    def test_git_fetch_updates_remote_tracking_refs_without_touching_head(self):
+        git("checkout", "-q", "-b", "brand-new", cwd=self.origin)
+        (Path(self.origin) / "d.txt").write_text("four\n")
+        git("add", "-A", cwd=self.origin)
+        git("commit", "-qm", "brand new branch", cwd=self.origin)
+        git("checkout", "-q", "master", cwd=self.origin)
+
+        code, payload, _ = run_shim("git-fetch", "--path", self.work)
+        self.assertEqual(0, code)
+        self.assertTrue(payload["ok"])
+
+        _, refs, _ = run_shim("git-refs", "--path", self.work, "--kind", "branches")
+        self.assertIn("brand-new", [ref["value"] for ref in refs["refs"]])
+
+        # git-fetch must not move HEAD, unlike git-pull.
+        _, head, _ = run_shim("git-head", "--path", self.work)
+        self.assertEqual("master", head["ref"])
+
+    def test_git_resolve_returns_the_full_forty_character_sha(self):
+        code, payload, _ = run_shim("git-resolve", "--path", self.work, "--ref", "master")
+
+        self.assertEqual(0, code)
+        self.assertEqual(40, len(payload["sha"]))
+        self.assertRegex(payload["sha"], r"^[0-9a-f]{40}$")
+
+    def test_git_resolve_resolves_an_abbreviated_sha_to_the_full_one(self):
+        code, payload, _ = run_shim("git-resolve", "--path", self.work, "--ref", self.first_sha[:10])
+
+        self.assertEqual(0, code)
+        self.assertEqual(self.first_sha, payload["sha"])
+
+    def test_git_resolve_an_unknown_ref_fails(self):
+        code, payload, _ = run_shim("git-resolve", "--path", self.work, "--ref", "no-such-ref")
+
+        self.assertEqual(1, code)
+        self.assertIn("could not resolve", payload["error"])
+
+    def test_git_ls_tree_lists_the_root_at_a_commit(self):
+        code, payload, _ = run_shim(
+            "git-ls-tree", "--path", self.work, "--ref", self.first_sha, "--dir", ""
+        )
+
+        self.assertEqual(0, code)
+        names = [entry["name"] for entry in payload["entries"]]
+        self.assertEqual(["a.txt"], names)
+        self.assertEqual("blob", payload["entries"][0]["type"])
+
+    def test_git_ls_tree_reflects_the_commit_not_the_working_tree(self):
+        # b.txt only exists as of the second commit, so the first commit's tree
+        # must not list it even though the working tree (checked out to master)
+        # has it.
+        code, payload, _ = run_shim(
+            "git-ls-tree", "--path", self.work, "--ref", "master", "--dir", ""
+        )
+
+        names = [entry["name"] for entry in payload["entries"]]
+        self.assertEqual(0, code)
+        self.assertIn("b.txt", names)
+
+    def test_git_show_blob_reads_file_content_at_a_commit(self):
+        code, payload, _ = run_shim(
+            "git-show-blob", "--path", self.work, "--ref", self.first_sha, "--file", "a.txt"
+        )
+
+        self.assertEqual(0, code)
+        self.assertEqual("one\n", payload["content"])
+        self.assertFalse(payload["binary"])
+        self.assertFalse(payload["truncated"])
+
+    def test_git_show_blob_truncates_past_max_bytes(self):
+        code, payload, _ = run_shim(
+            "git-show-blob", "--path", self.work, "--ref", self.first_sha, "--file", "a.txt",
+            "--max-bytes", "2",
+        )
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["truncated"])
+        self.assertEqual(2, len(payload["content"]))
+
+    def test_git_show_blob_flags_binary_content(self):
+        (Path(self.origin) / "bin.dat").write_bytes(b"\x00\x01\x02binary")
+        git("add", "-A", cwd=self.origin)
+        git("commit", "-qm", "add binary", cwd=self.origin)
+        run_shim("git-fetch", "--path", self.work)
+
+        code, payload, _ = run_shim(
+            "git-show-blob", "--path", self.work, "--ref", "origin/master", "--file", "bin.dat"
+        )
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["binary"])
+        self.assertEqual("", payload["content"])
+
 
 class RepoRegisterTest(unittest.TestCase):
     def setUp(self):

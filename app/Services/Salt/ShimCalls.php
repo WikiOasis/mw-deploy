@@ -82,6 +82,60 @@ final class ShimCalls
     }
 
     /**
+     * Update remote-tracking refs without touching the working tree — what the
+     * ref cache's "fetch latest" calls, distinct from gitPull which resets HEAD.
+     */
+    public function gitFetch(RepositoryVersion $checkout): SaltCall
+    {
+        return new SaltCall(
+            target: $this->stagingTarget(),
+            command: ShimCommand::make(StepName::GitFetch)
+                ->option('path', $checkout->stagingPath()),
+            subject: $checkout->displayName(),
+        );
+    }
+
+    /**
+     * Resolve a ref to its full commit SHA, so the file browser cache is keyed by
+     * content rather than by a branch name that can move.
+     */
+    public function gitResolve(RepositoryVersion $checkout, string $ref): SaltCall
+    {
+        return new SaltCall(
+            target: $this->stagingTarget(),
+            command: ShimCommand::make(StepName::GitResolve)
+                ->option('path', $checkout->stagingPath())
+                ->option('ref', $ref),
+            subject: $checkout->displayName().' @ '.$ref,
+        );
+    }
+
+    public function gitLsTree(RepositoryVersion $checkout, string $sha, string $dir): SaltCall
+    {
+        return new SaltCall(
+            target: $this->stagingTarget(),
+            command: ShimCommand::make(StepName::GitLsTree)
+                ->option('path', $checkout->stagingPath())
+                ->option('ref', $sha)
+                ->optionalOption('dir', $dir),
+            subject: $checkout->displayName().' @ '.$sha.':'.$dir,
+        );
+    }
+
+    public function gitShowBlob(RepositoryVersion $checkout, string $sha, string $file, int $maxBytes): SaltCall
+    {
+        return new SaltCall(
+            target: $this->stagingTarget(),
+            command: ShimCommand::make(StepName::GitShowBlob)
+                ->option('path', $checkout->stagingPath())
+                ->option('ref', $sha)
+                ->option('file', $file)
+                ->option('max-bytes', $maxBytes),
+            subject: $checkout->displayName().' @ '.$sha.':'.$file,
+        );
+    }
+
+    /**
      * Clone a checkout that is not on disk — a newly registered repository, a new
      * version's copy of an extension, or one being restored after an undeploy.
      */
@@ -320,7 +374,7 @@ final class ShimCalls
      * One canary result, no interactive prompt: there is no TTY under Salt, and
      * the retry-then-ask logic lives in the job.
      */
-    public function canary(string $hostname, ?string $vhost = null, ?int $retries = null): SaltCall
+    public function canary(string $hostname, ?string $vhost = null, ?int $retries = null, ?string $expect = null): SaltCall
     {
         $vhost ??= (string) config('mwdeploy.rollout.canary_vhost');
 
@@ -328,7 +382,8 @@ final class ShimCalls
             target: $hostname,
             command: ShimCommand::make(StepName::Canary)
                 ->option('vhost', $vhost)
-                ->option('retries', $retries ?? (int) config('mwdeploy.rollout.canary_retries')),
+                ->option('retries', $retries ?? (int) config('mwdeploy.rollout.canary_retries'))
+                ->optionalOption('expect', $expect ?? (string) config('mwdeploy.rollout.canary_expect')),
             subject: $vhost,
         );
     }

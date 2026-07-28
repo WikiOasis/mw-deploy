@@ -366,7 +366,8 @@ These are the ones only you can fill in, from the facts gathered in section 0:
 | `MWDEPLOY_PATCH_STORAGE` | same as above, if the master is the staging host | where the portal *writes* uploads — see section 6 |
 | `MWDEPLOY_RSYNC_SOURCE` | `rsync://<staging fqdn>/mediawiki/` | section 5 |
 | `MWDEPLOY_HAPROXY_BACKEND` | **fact 5** | default backend for depool/repool |
-| `MWDEPLOY_CANARY_VHOST` | e.g. `meta.wikioasis.org` | a wiki that returns 200 with `wikioasis` in the body |
+| `MWDEPLOY_CANARY_VHOST` | e.g. `meta.wikioasis.org` | a wiki that returns 200 |
+| `MWDEPLOY_CANARY_EXPECT` | `content="MediaWiki` | marker expected in the body; the default matches the `<meta name="generator" content="MediaWiki x.xx.x">` tag every MediaWiki skin renders, so it works for any vhost without special-casing a sitename |
 | `MWDEPLOY_L10N_WIKI` | `testwiki` | |
 | `MWDEPLOY_DEFAULT_PARALLEL` | `1` | start conservative |
 | `MWDEPLOY_MAX_PARALLEL` | `8` | ceiling the UI will offer |

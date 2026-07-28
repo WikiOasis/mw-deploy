@@ -119,6 +119,58 @@ final class ImportController extends Controller
     }
 
     /**
+     * Build a plan straight from pasted JSON instead of running tree-scan over
+     * Salt — the fallback for when the async scan itself is what's failing
+     * (a wedged minion, a farm too big for the scan's own timeout, Salt down).
+     * The operator runs `mwdeploy-shim tree-scan` by hand wherever they can reach
+     * the tree and pastes the output here; everything downstream (the plan, the
+     * review screen, apply) is identical to a scan that finished normally.
+     */
+    public function manual(Request $request, TreeScanner $scanner, ImportPlanner $planner, ApplyImport $apply): JsonResponse
+    {
+        $this->authorize('create', Repository::class);
+
+        $validated = $request->validate([
+            'payload' => ['required', 'string'],
+            'root' => ['sometimes', 'string', 'max:500'],
+        ]);
+
+        $decoded = json_decode($validated['payload'], true);
+
+        if (! is_array($decoded)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'That is not valid JSON.',
+                'hint' => 'Paste the exact output of `mwdeploy-shim tree-scan ...` — one JSON object, starting with {.',
+            ], 422);
+        }
+
+        $root = trim((string) ($request->string('root')->toString() ?: ($decoded['root'] ?? '')));
+
+        if ($root === '') {
+            return response()->json([
+                'ok' => false,
+                'error' => 'Missing root path.',
+                'hint' => 'The pasted JSON has no "root" field — fill in the deploy root above the box instead.',
+            ], 422);
+        }
+
+        $scan = TreeScan::fromPayload($root, $decoded);
+
+        if ($scan->checkouts->isEmpty()) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'That JSON has no entries in it.',
+                'hint' => 'Make sure the pasted text is a whole tree-scan result, not just part of it.',
+            ], 422);
+        }
+
+        $scanner->cacheManual($scan);
+
+        return $this->respondWithPlan($scan, $planner, $apply);
+    }
+
+    /**
      * Poll an in-flight or just-finished async scan and turn it into a response:
      * still-running, failed-with-a-hint, or the same plan payload show() has
      * always returned when it happens to finish inline.

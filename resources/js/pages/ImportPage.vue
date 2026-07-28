@@ -37,6 +37,19 @@ const scanId = ref(null);
 const selected = ref(new Set());
 const showInSync = ref(false);
 
+/**
+ * Manual fallback for when the Salt round-trip itself is what's broken (a
+ * wedged minion, a farm too big for the scan's own timeout). The operator runs
+ * `mwdeploy-shim tree-scan` by hand somewhere they can reach the tree and
+ * pastes the JSON here — everything past this point (the plan, review, apply)
+ * is the exact same code a normal scan goes through.
+ */
+const manualMode = ref(false);
+const manualRoot = ref('');
+const manualPayload = ref('');
+const manualBusy = ref(false);
+const manualError = ref(null);
+
 /** @returns {boolean} true once the scan is done (success or failure) */
 const applyScanResponse = (payload) => {
     if (payload.status === 'pending') {
@@ -95,6 +108,30 @@ const load = async (fresh = false) => {
 };
 
 onMounted(() => load());
+
+const submitManual = async () => {
+    manualBusy.value = true;
+    manualError.value = null;
+
+    try {
+        const payload = await api.post(endpoint('import/manual'), {
+            payload: manualPayload.value,
+            root: manualRoot.value || undefined,
+        });
+
+        poller.stop();
+        scanning.value = false;
+        applyScanResponse(payload);
+        error.value = null;
+        manualMode.value = false;
+    } catch (thrown) {
+        manualError.value = thrown instanceof ApiError
+            ? [thrown.message, thrown.body?.hint].filter(Boolean).join(' ')
+            : 'Something went wrong parsing that.';
+    } finally {
+        manualBusy.value = false;
+    }
+};
 
 const entries = computed(() => plan.value?.entries ?? []);
 const actionable = computed(() => entries.value.filter((entry) => entry.actionable));
@@ -167,6 +204,14 @@ const apply = async () => {
             </p>
             <button
                 type="button"
+                class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300 disabled:opacity-50"
+                :disabled="loading || busy || scanning"
+                @click="manualMode = !manualMode"
+            >
+                {{ manualMode ? 'Cancel' : 'Paste JSON instead' }}
+            </button>
+            <button
+                type="button"
                 class="ml-auto rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300 disabled:opacity-50"
                 :disabled="loading || busy || scanning"
                 @click="load(true)"
@@ -174,6 +219,55 @@ const apply = async () => {
                 Re-scan
             </button>
         </header>
+
+        <CardPanel
+            v-if="manualMode"
+            title="Paste a tree-scan result"
+            subtitle="For when the scan above can't reach the fleet. Run mwdeploy-shim tree-scan --root <path> [...] wherever you can reach the tree, and paste its stdout below."
+        >
+            <div class="space-y-3">
+                <div v-if="manualError" class="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                    {{ manualError }}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium tracking-wide text-slate-500 uppercase">
+                        Root path
+                    </label>
+                    <input
+                        v-model="manualRoot"
+                        type="text"
+                        :placeholder="session.settings.staging_path"
+                        class="mt-1 block w-full max-w-sm rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                    />
+                    <p class="mt-1 text-xs text-slate-500">
+                        Only needed if the pasted JSON has no <code class="font-mono">root</code> field of its own.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium tracking-wide text-slate-500 uppercase">
+                        tree-scan JSON
+                    </label>
+                    <textarea
+                        v-model="manualPayload"
+                        rows="10"
+                        spellcheck="false"
+                        placeholder='{"root": "...", "entries": [...]}'
+                        class="mt-1 block w-full rounded-md bg-white px-3 py-2 font-mono text-xs ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                    />
+                </div>
+
+                <button
+                    type="button"
+                    class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                    :disabled="manualBusy || manualPayload.trim() === ''"
+                    @click="submitManual"
+                >
+                    {{ manualBusy ? 'Reading…' : 'Build plan from this JSON' }}
+                </button>
+            </div>
+        </CardPanel>
 
         <LoadState :loading="loading" :error="error" @retry="load">
             <div
