@@ -1,10 +1,11 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
 import { ApiError, api, endpoint } from '../api';
 import CardPanel from '../components/CardPanel.vue';
 import LoadState from '../components/LoadState.vue';
+import RepoFileBrowser from '../components/RepoFileBrowser.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { relative, shortRef } from '../format';
 import { flash, flashError } from '../store';
@@ -42,6 +43,21 @@ const load = async () => {
 onMounted(load);
 
 const repository = computed(() => data.value?.data ?? null);
+
+/**
+ * Any present checkout can browse the tree — they all share one remote, same
+ * reasoning the backend already uses to pick a readable checkout for refs().
+ */
+const browsableCheckouts = computed(() => (repository.value?.checkouts ?? []).filter((checkout) => checkout.present));
+
+const browseCheckoutId = ref('');
+
+watch(browsableCheckouts, (checkouts) => {
+    if (browseCheckoutId.value === '' && checkouts.length > 0) {
+        browseCheckoutId.value = String(checkouts[0].id);
+    }
+});
+
 
 const deactivate = async () => {
     busy.value = true;
@@ -210,6 +226,44 @@ const deactivate = async () => {
                     </ul>
                 </CardPanel>
             </div>
+
+            <CardPanel
+                title="Browse files"
+                subtitle="Read-only exploration of a checkout's tree at any branch, tag or commit — not part of deploying."
+            >
+                <p v-if="browsableCheckouts.length === 0" class="text-sm text-slate-500">
+                    No present checkout to browse. Deploy this repository somewhere first.
+                </p>
+                <template v-else>
+                    <div v-if="browsableCheckouts.length > 1" class="mb-3 flex flex-wrap gap-2">
+                        <button
+                            v-for="checkout in browsableCheckouts"
+                            :key="checkout.id"
+                            type="button"
+                            class="rounded border px-2 py-0.5 text-xs font-medium"
+                            :class="
+                                String(checkout.id) === browseCheckoutId
+                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                    : 'border-slate-300 text-slate-600'
+                            "
+                            @click="browseCheckoutId = String(checkout.id)"
+                        >
+                            {{ checkout.version_label }}
+                        </button>
+                    </div>
+
+                    <RepoFileBrowser
+                        v-if="browseCheckoutId"
+                        :key="browseCheckoutId"
+                        :checkout-id="browseCheckoutId"
+                        :branches="data.refs.branches"
+                        :default-ref="
+                            browsableCheckouts.find((checkout) => String(checkout.id) === browseCheckoutId)
+                                ?.resolved_ref ?? ''
+                        "
+                    />
+                </template>
+            </CardPanel>
         </div>
     </LoadState>
 </template>

@@ -9,6 +9,7 @@ use App\Enums\RepositoryType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreRepositoryRequest;
 use App\Http\Resources\RepositoryResource;
+use App\Models\GitRefCache;
 use App\Models\MediaWikiVersion;
 use App\Models\Repository;
 use App\Models\RepositoryVersion;
@@ -98,6 +99,10 @@ final class RepositoryController extends Controller
 
     /**
      * Branch and commit listings for the wizard's ref picker, per checkout.
+     *
+     * Served from the persistent ref cache (see CachedGitRefProvider) — there is
+     * no TTL here, so `fetched_at` is what tells the operator how stale this is,
+     * and POST .../refs/fetch is the only thing that moves it forward.
      */
     public function refs(Request $request, RepositoryVersion $checkout, GitRefProvider $provider): JsonResponse
     {
@@ -106,19 +111,26 @@ final class RepositoryController extends Controller
         $branch = $request->query('branch');
         $branch = is_string($branch) && $branch !== '' ? $branch : null;
 
+        // Resolved before reading fetched_at: on a checkout's very first view
+        // these are what populate the cache row in the first place, so reading
+        // the timestamp first would always see "never fetched".
+        $branches = $provider->branches($checkout);
+        $commits = $provider->commits($checkout, $branch);
+
         return response()->json([
             'available' => $provider->isAvailable(),
             'present' => $checkout->isPresent(),
             'resolved_ref' => $checkout->resolvedRefValue(),
             'default_branch' => $checkout->repository?->default_branch,
             'observed_ref' => $checkout->observed_ref_value,
+            'fetched_at' => $this->fetchedAt($checkout),
             'branches' => array_map(
                 fn (GitRef $ref): array => [
                     'value' => $ref->value,
                     'label' => $ref->value,
                     'is_default' => $ref->isDefault,
                 ],
-                $provider->branches($checkout),
+                $branches,
             ),
             'commits' => array_map(
                 fn (GitRef $ref): array => [
@@ -127,9 +139,33 @@ final class RepositoryController extends Controller
                     'author' => $ref->author,
                     'date' => $ref->date,
                 ],
-                $provider->commits($checkout, $branch),
+                $commits,
             ),
         ]);
+    }
+
+    /**
+     * Force a live fetch + re-list, bypassing the persistent cache. What the
+     * picker's "Fetch latest" button calls.
+     */
+    public function fetchRefs(Request $request, RepositoryVersion $checkout, GitRefProvider $provider): JsonResponse
+    {
+        $this->authorize('view', $checkout->repository ?? Repository::class);
+
+        $provider->refresh($checkout);
+
+        return $this->refs($request, $checkout, $provider);
+    }
+
+    private function fetchedAt(RepositoryVersion $checkout): ?string
+    {
+        $cache = GitRefCache::query()
+            ->where('repository_version_id', $checkout->getKey())
+            ->where('kind', 'branches')
+            ->where('branch', '')
+            ->first();
+
+        return $cache?->fetched_at?->toIso8601String();
     }
 
     public function store(StoreRepositoryRequest $request, RegisterRepository $register): JsonResponse

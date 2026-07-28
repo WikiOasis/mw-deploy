@@ -10,12 +10,15 @@ use App\Services\Git\Contracts\GitRefProvider;
 use App\Services\Salt\Contracts\SaltClient;
 use App\Services\Salt\SaltCall;
 use App\Services\Salt\ShimCommand;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * Asks the staging minion for its branches and commits through the same Salt
  * transport as everything else, so the ref picker works whether or not the
  * staging tree happens to live on the Salt master.
+ *
+ * Deliberately uncached: CachedGitRefProvider is what makes ref listings
+ * persistent, so this always asks the minion live, and refresh() is simply
+ * fetch().
  */
 final class SaltGitRefProvider implements GitRefProvider
 {
@@ -26,9 +29,23 @@ final class SaltGitRefProvider implements GitRefProvider
         return true;
     }
 
+    public function fetch(RepositoryVersion $checkout): void
+    {
+        $this->salt->run(new SaltCall(
+            target: (string) config('mwdeploy.targets.staging'),
+            command: ShimCommand::make(StepName::GitFetch)->option('path', $checkout->stagingPath()),
+            subject: $checkout->displayName(),
+        ));
+    }
+
+    public function refresh(RepositoryVersion $checkout): void
+    {
+        $this->fetch($checkout);
+    }
+
     public function branches(RepositoryVersion $checkout): array
     {
-        $refs = $this->fetch($checkout, 'branches', null);
+        $refs = $this->list($checkout, 'branches', null);
 
         usort($refs, function (GitRef $a, GitRef $b) use ($checkout): int {
             return ($b->value === ($checkout->repository?->default_branch ?? 'master') ? 1 : 0)
@@ -40,38 +57,32 @@ final class SaltGitRefProvider implements GitRefProvider
 
     public function commits(RepositoryVersion $checkout, ?string $branch = null): array
     {
-        return $this->fetch($checkout, 'commits', $branch ?? ($checkout->repository?->default_branch ?? 'master'));
+        return $this->list($checkout, 'commits', $branch ?? ($checkout->repository?->default_branch ?? 'master'));
     }
 
     /**
      * @return list<GitRef>
      */
-    private function fetch(RepositoryVersion $checkout, string $kind, ?string $branch): array
+    private function list(RepositoryVersion $checkout, string $kind, ?string $branch): array
     {
-        $cacheKey = 'mwdeploy:refs:salt:'.$checkout->getKey().':'.$kind.':'.($branch ?? '-');
+        $command = ShimCommand::make(StepName::GitRefs)
+            ->option('path', $checkout->stagingPath())
+            ->option('kind', $kind)
+            ->option('limit', (int) config('mwdeploy.git.commit_limit', 30))
+            ->optionalOption('branch', $branch);
 
-        /** @var list<array<string, mixed>> $rows */
-        $rows = Cache::remember($cacheKey, now()->addSeconds(60), function () use ($checkout, $kind, $branch): array {
-            $command = ShimCommand::make(StepName::GitRefs)
-                ->option('path', $checkout->stagingPath())
-                ->option('kind', $kind)
-                ->option('limit', (int) config('mwdeploy.git.commit_limit', 30))
-                ->optionalOption('branch', $branch);
+        $result = $this->salt->run(new SaltCall(
+            target: (string) config('mwdeploy.targets.staging'),
+            command: $command,
+            subject: $checkout->displayName(),
+        ));
 
-            $result = $this->salt->run(new SaltCall(
-                target: (string) config('mwdeploy.targets.staging'),
-                command: $command,
-                subject: $checkout->displayName(),
-            ));
+        $rows = [];
 
-            if (! $result->ok) {
-                return [];
-            }
-
-            $refs = $result->payloadValue('refs', []);
-
-            return is_array($refs) ? array_values(array_filter($refs, 'is_array')) : [];
-        });
+        if ($result->ok) {
+            $raw = $result->payloadValue('refs', []);
+            $rows = is_array($raw) ? array_values(array_filter($raw, 'is_array')) : [];
+        }
 
         $refs = [];
 

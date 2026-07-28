@@ -6,7 +6,6 @@ namespace App\Services\Git;
 
 use App\Models\RepositoryVersion;
 use App\Services\Git\Contracts\GitRefProvider;
-use Illuminate\Support\Facades\Cache;
 use Symfony\Component\Process\Exception\ExceptionInterface;
 use Symfony\Component\Process\Process;
 
@@ -15,6 +14,9 @@ use Symfony\Component\Process\Process;
  *
  * Only valid when the Salt master and the staging tree are the same machine; see
  * SaltGitRefProvider for the general case.
+ *
+ * Deliberately uncached: CachedGitRefProvider is what makes ref listings
+ * persistent, so this always reads live, and refresh() is simply fetch().
  */
 final class LocalGitRefProvider implements GitRefProvider
 {
@@ -25,16 +27,26 @@ final class LocalGitRefProvider implements GitRefProvider
         return is_dir((string) config('mwdeploy.paths.staging'));
     }
 
+    public function fetch(RepositoryVersion $checkout): void
+    {
+        $this->git($checkout, ['fetch', 'origin', '--prune', '--tags']);
+    }
+
+    public function refresh(RepositoryVersion $checkout): void
+    {
+        $this->fetch($checkout);
+    }
+
     public function branches(RepositoryVersion $checkout): array
     {
-        $lines = $this->cached($checkout, 'branches', fn (): array => $this->git($checkout, [
+        $lines = $this->git($checkout, [
             'for-each-ref',
             '--sort=-committerdate',
             // lstrip=3 drops "refs/remotes/origin/", which also turns the
             // origin/HEAD symref into a bare "HEAD" we can filter out.
             '--format=%(refname:lstrip=3)'.self::SEPARATOR.'%(subject)'.self::SEPARATOR.'%(authorname)'.self::SEPARATOR.'%(committerdate:iso8601)',
             'refs/remotes/origin',
-        ]));
+        ]);
 
         $branches = [];
 
@@ -62,12 +74,12 @@ final class LocalGitRefProvider implements GitRefProvider
         $branch ??= ($checkout->repository?->default_branch ?? 'master');
         $limit = max(1, (int) config('mwdeploy.git.commit_limit', 30));
 
-        $lines = $this->cached($checkout, 'commits:'.$branch, fn (): array => $this->git($checkout, [
+        $lines = $this->git($checkout, [
             'log',
             '--max-count='.$limit,
             '--format=%H'.self::SEPARATOR.'%s'.self::SEPARATOR.'%an'.self::SEPARATOR.'%aI',
             'origin/'.$branch,
-        ]));
+        ]);
 
         $commits = [];
 
@@ -144,18 +156,5 @@ final class LocalGitRefProvider implements GitRefProvider
         });
 
         return $branches;
-    }
-
-    /**
-     * @param  callable(): list<string>  $resolver
-     * @return list<string>
-     */
-    private function cached(RepositoryVersion $checkout, string $key, callable $resolver): array
-    {
-        return Cache::remember(
-            'mwdeploy:refs:local:'.$checkout->getKey().':'.$key,
-            now()->addSeconds(60),
-            $resolver,
-        );
     }
 }

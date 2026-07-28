@@ -29,4 +29,22 @@ interface GitRefProvider
      * picker instead of silently showing nothing.
      */
     public function isAvailable(): bool;
+
+    /**
+     * Update the remote-tracking refs (git fetch --prune) without listing
+     * anything or resetting the working tree. What refresh() calls before
+     * re-listing.
+     */
+    public function fetch(RepositoryVersion $checkout): void;
+
+    /**
+     * Force an up-to-date view of this checkout's refs, bypassing whatever
+     * caching sits in front of branches()/commits().
+     *
+     * On the raw (Local/Salt) providers this is just fetch(): they hold no
+     * cache of their own, so the next branches()/commits() call is already
+     * live. CachedGitRefProvider is where this actually matters — it also
+     * re-lists and rewrites the persistent cache rows.
+     */
+    public function refresh(RepositoryVersion $checkout): void;
 }

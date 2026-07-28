@@ -15,8 +15,12 @@ enum StepName: string
 {
     case GitCheckout = 'git-checkout';
     case GitPull = 'git-pull';
+    case GitFetch = 'git-fetch';
     case GitHead = 'git-head';
     case GitRefs = 'git-refs';
+    case GitResolve = 'git-resolve';
+    case GitLsTree = 'git-ls-tree';
+    case GitShowBlob = 'git-show-blob';
     case GitRemoteCheck = 'git-remote-check';
     case TreeScan = 'tree-scan';
     case RepoRegister = 'repo-register';
@@ -35,8 +39,12 @@ enum StepName: string
         return match ($this) {
             self::GitCheckout => 'Checkout ref',
             self::GitPull => 'Pull tracked branch',
+            self::GitFetch => 'Fetch and prune remote refs',
             self::GitHead => 'Read current HEAD',
             self::GitRefs => 'List branches and commits',
+            self::GitResolve => 'Resolve ref to commit SHA',
+            self::GitLsTree => 'List directory at a commit',
+            self::GitShowBlob => 'Read file at a commit',
             self::GitRemoteCheck => 'Check remote is reachable',
             self::TreeScan => 'Scan the MediaWiki tree',
             self::RepoRegister => 'Register repository',

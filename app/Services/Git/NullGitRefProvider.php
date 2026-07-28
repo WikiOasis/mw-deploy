@@ -29,4 +29,14 @@ final class NullGitRefProvider implements GitRefProvider
     {
         return false;
     }
+
+    public function fetch(RepositoryVersion $checkout): void
+    {
+        // Discovery is off; there is nothing to fetch.
+    }
+
+    public function refresh(RepositoryVersion $checkout): void
+    {
+        // Discovery is off; there is nothing to refresh.
+    }
 }

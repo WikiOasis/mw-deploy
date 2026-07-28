@@ -346,6 +346,120 @@ def cmd_git_pull(args: argparse.Namespace) -> Result:
     )
 
 
+def cmd_git_fetch(args: argparse.Namespace) -> Result:
+    """Update the remote-tracking refs without touching the working tree.
+
+    Distinct from git-pull, which resets HEAD: this is what the ref cache's
+    "fetch latest" calls, and it must never move a checkout that might be
+    mid-deployment.
+    """
+    path = require_repo(args.path)
+
+    git(path, "fetch", "origin", "--prune", "--tags").raise_for_status("git fetch failed")
+
+    return Result(ok=True, detail=f"git fetch --prune in {path}", extra={"path": path})
+
+
+def cmd_git_resolve(args: argparse.Namespace) -> Result:
+    """Resolve a branch name, tag or short SHA to the full 40-character commit SHA.
+
+    The file browser cache is keyed by this, not by the ref the caller typed, so
+    the same commit reached via "master" or its SHA hits the same cache row.
+    """
+    path = require_repo(args.path)
+
+    ran = git(path, "rev-parse", "--verify", "--quiet", f"{args.ref}^{{commit}}", timeout=60)
+
+    if not ran.ok:
+        # The ref may only exist on the remote until a fetch catches it up.
+        git(path, "fetch", "origin", "--prune", "--tags").raise_for_status("git fetch failed")
+        ran = git(path, "rev-parse", "--verify", "--quiet", f"{args.ref}^{{commit}}", timeout=60)
+
+    ran.raise_for_status(f"could not resolve ref: {args.ref}")
+    sha = ran.stdout.strip()
+
+    return Result(ok=True, detail=f"{args.ref} resolves to {sha}", extra={"sha": sha})
+
+
+def cmd_git_ls_tree(args: argparse.Namespace) -> Result:
+    """List one directory's entries at a commit."""
+    path = require_repo(args.path)
+    tree_path = args.dir.strip("/")
+    spec = f"{args.ref}:{tree_path}" if tree_path else f"{args.ref}:"
+
+    listing = git(path, "ls-tree", "--long", spec, timeout=120)
+    listing.raise_for_status(f"could not list tree {spec}")
+
+    entries = []
+
+    for line in listing.stdout.splitlines():
+        # "<mode> <type> <sha> <size>\t<name>"
+        meta, _, name = line.partition("\t")
+        fields = meta.split()
+
+        if len(fields) < 4 or not name:
+            continue
+
+        mode, kind, _sha, size = fields[0], fields[1], fields[2], fields[3]
+
+        entries.append({
+            "name": name,
+            "type": kind,
+            "mode": mode,
+            "size": None if size == "-" else int(size),
+        })
+
+    return Result(
+        ok=True,
+        detail=f"{len(entries)} entries in {spec}",
+        extra={"entries": entries},
+    )
+
+
+def cmd_git_show_blob(args: argparse.Namespace) -> Result:
+    """Read one file's content at a commit, capped at --max-bytes.
+
+    Binary content (a null byte anywhere in the output) is flagged rather than
+    dumped as text — there is no sane way to show a compiled image inline, and
+    treating it as UTF-8 would just corrupt it further.
+    """
+    path = require_repo(args.path)
+    file_path = args.file.strip("/")
+    spec = f"{args.ref}:{file_path}"
+
+    ran = run(
+        ["git", "-C", path, "show", spec],
+        as_web_user=True,
+        timeout=120,
+    )
+    ran.raise_for_status(f"could not read {spec}")
+
+    raw = ran.stdout.encode("utf-8", "surrogateescape")
+    size = len(raw)
+    is_binary = b"\x00" in raw[:8192]
+
+    truncated = False
+    content = ""
+
+    if not is_binary:
+        if size > args.max_bytes:
+            raw = raw[: args.max_bytes]
+            truncated = True
+
+        content = raw.decode("utf-8", "replace")
+
+    return Result(
+        ok=True,
+        detail=f"read {spec} ({size} bytes)",
+        extra={
+            "content": content,
+            "size": size,
+            "truncated": truncated,
+            "binary": is_binary,
+        },
+    )
+
+
 def cmd_git_refs(args: argparse.Namespace) -> Result:
     """List remote branches or recent commits, for the portal's ref picker."""
     path = require_repo(args.path)
@@ -1470,6 +1584,28 @@ def build_parser() -> argparse.ArgumentParser:
     pull.add_argument("--path", required=True)
     pull.set_defaults(handler=cmd_git_pull)
 
+    fetch = subparsers.add_parser("git-fetch", help="Fetch and prune without touching the working tree")
+    fetch.add_argument("--path", required=True)
+    fetch.set_defaults(handler=cmd_git_fetch)
+
+    resolve = subparsers.add_parser("git-resolve", help="Resolve a ref to its full commit SHA")
+    resolve.add_argument("--path", required=True)
+    resolve.add_argument("--ref", required=True)
+    resolve.set_defaults(handler=cmd_git_resolve)
+
+    ls_tree = subparsers.add_parser("git-ls-tree", help="List a directory's entries at a commit")
+    ls_tree.add_argument("--path", required=True)
+    ls_tree.add_argument("--ref", required=True)
+    ls_tree.add_argument("--dir", default="", help="Directory relative to the repo root; empty means the root")
+    ls_tree.set_defaults(handler=cmd_git_ls_tree)
+
+    show_blob = subparsers.add_parser("git-show-blob", help="Read one file's content at a commit")
+    show_blob.add_argument("--path", required=True)
+    show_blob.add_argument("--ref", required=True)
+    show_blob.add_argument("--file", required=True, dest="file")
+    show_blob.add_argument("--max-bytes", type=int, default=2 * 1024 * 1024, dest="max_bytes")
+    show_blob.set_defaults(handler=cmd_git_show_blob)
+
     head = subparsers.add_parser("git-head", help="Report the current ref without changing anything")
     head.add_argument("--path", required=True)
     head.set_defaults(handler=cmd_git_head)
@@ -1564,7 +1700,11 @@ def build_parser() -> argparse.ArgumentParser:
     canary.add_argument("--retries", type=int, default=3)
     canary.add_argument("--backoff", type=float, default=3.0)
     canary.add_argument("--timeout", type=int, default=15)
-    canary.add_argument("--expect", default="wikioasis", help="Case-insensitive marker expected in the body")
+    canary.add_argument(
+        "--expect",
+        default='content="MediaWiki',
+        help="Case-insensitive marker expected in the body",
+    )
     canary.set_defaults(handler=cmd_canary)
 
     haproxy = subparsers.add_parser("haproxy", help="Depool or repool one server on this proxy")

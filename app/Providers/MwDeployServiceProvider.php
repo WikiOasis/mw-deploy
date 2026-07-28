@@ -14,9 +14,14 @@ use App\Policies\MediaWikiVersionPolicy;
 use App\Policies\PatchPolicy;
 use App\Policies\RepositoryPolicy;
 use App\Policies\UserPolicy;
+use App\Services\Git\CachedGitFileBrowser;
+use App\Services\Git\CachedGitRefProvider;
+use App\Services\Git\Contracts\GitFileBrowser;
 use App\Services\Git\Contracts\GitRefProvider;
+use App\Services\Git\LocalGitFileBrowser;
 use App\Services\Git\LocalGitRefProvider;
 use App\Services\Git\NullGitRefProvider;
+use App\Services\Git\SaltGitFileBrowser;
 use App\Services\Git\SaltGitRefProvider;
 use App\Services\Salt\Contracts\SaltClient;
 use App\Services\Salt\ProcessSaltClient;
@@ -48,12 +53,37 @@ final class MwDeployServiceProvider extends ServiceProvider
         ));
 
         $this->app->bind(GitRefProvider::class, function (): GitRefProvider {
-            return match ((string) config('mwdeploy.git.driver', 'salt')) {
-                'salt' => $this->app->make(SaltGitRefProvider::class),
-                'local' => $this->app->make(LocalGitRefProvider::class),
-                default => new NullGitRefProvider,
-            };
+            return new CachedGitRefProvider($this->resolveRawGitRefProvider());
         });
+
+        $this->app->bind(GitFileBrowser::class, function (): GitFileBrowser {
+            return new CachedGitFileBrowser($this->resolveRawGitFileBrowser());
+        });
+    }
+
+    /**
+     * The provider that actually talks to git, before the persistent cache
+     * wraps it. Same local/salt/null switch the ref provider always used.
+     */
+    private function resolveRawGitRefProvider(): GitRefProvider
+    {
+        return match ((string) config('mwdeploy.git.driver', 'salt')) {
+            'salt' => $this->app->make(SaltGitRefProvider::class),
+            'local' => $this->app->make(LocalGitRefProvider::class),
+            default => new NullGitRefProvider,
+        };
+    }
+
+    /**
+     * Same driver switch as the ref provider — a farm's local/salt choice for
+     * "where does git run" is the same choice for browsing and for refs.
+     */
+    private function resolveRawGitFileBrowser(): GitFileBrowser
+    {
+        return match ((string) config('mwdeploy.git.driver', 'salt')) {
+            'local' => $this->app->make(LocalGitFileBrowser::class),
+            default => $this->app->make(SaltGitFileBrowser::class),
+        };
     }
 
     public function boot(): void
