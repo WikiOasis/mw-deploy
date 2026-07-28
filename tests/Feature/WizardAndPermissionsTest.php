@@ -165,6 +165,38 @@ final class WizardAndPermissionsTest extends TestCase
     }
 
     #[Test]
+    public function the_plan_screen_can_be_confirmed_for_an_undeploy(): void
+    {
+        // The review step does not resubmit the wizard's own payload verbatim: it
+        // posts back exactly what /plan echoed, and StoreDeploymentRequest::items()
+        // echoes an undeploy's line items with an explicit ref_value of null
+        // rather than omitting the key. A ref_value ruleset that applies its
+        // string/regex checks unconditionally fails that null outright, even
+        // though nothing was smuggled in — this is the shape that must keep
+        // working end to end, not just the wizard's first, key-omitting request.
+        $echo = $this->extension('Echo', $this->v45);
+
+        $plan = $this->actingAs($this->remover())
+            ->postJson(route('api.deployments.plan'), [
+                'intent' => 'undeploy',
+                'items' => [['repository_version_id' => $echo->getKey()]],
+                'parallel' => 1,
+            ])
+            ->assertOk()
+            ->json('payload');
+
+        $this->assertNull($plan['items'][0]['ref_value']);
+
+        $this->actingAs($this->remover())
+            ->postJson(route('api.deployments.store'), $plan)
+            ->assertCreated();
+
+        $deployment = Deployment::query()->latest('id')->firstOrFail();
+        $this->assertSame(DeploymentIntent::Undeploy, $deployment->intent);
+        $this->assertSame(RepoAction::Undeploy, $deployment->repoRefs()->firstOrFail()->action);
+    }
+
+    #[Test]
     public function an_undeploy_submission_that_smuggles_a_ref_is_rejected(): void
     {
         $echo = $this->extension('Echo', $this->v45);

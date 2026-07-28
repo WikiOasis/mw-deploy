@@ -58,11 +58,13 @@ final class StoreDeploymentRequest extends FormRequest
             'items.*.repository_version_id' => ['required', 'integer', Rule::exists('repository_versions', 'id')],
 
             // A removal has no ref to check out, and accepting one would imply the
-            // operator had a say in something that is ignored.
-            'items.*.ref_value' => [
-                $isUndeploy ? 'prohibited' : 'required',
-                'string', 'max:255', 'regex:/^[A-Za-z0-9._\/\-]+$/',
-            ],
+            // operator had a say in something that is ignored. The string/regex
+            // checks must live inside this branch, not alongside it — the review
+            // step echoes an undeploy's items back with an explicit ref_value of
+            // null, and an unconditional 'string' rule fails a null value outright.
+            'items.*.ref_value' => $isUndeploy
+                ? ['prohibited']
+                : ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9._\/\-]+$/'],
             'items.*.ref_type' => ['sometimes', 'nullable', Rule::enum(RefType::class)],
 
             'patches' => ['sometimes', 'array'],
