@@ -69,11 +69,26 @@ const applyScanResponse = (payload) => {
 };
 
 const poller = usePolling(async () => {
+    // Captured up front: usePolling's stop() only cancels the *next* tick, not
+    // one already awaiting a response. Without this, a slow automatic scan's
+    // reply can land after a manual JSON import already replaced it — e.g.
+    // scanId went back to null for the manual plan — and silently clobber the
+    // screen with the (possibly still-pending) automatic scan's stale result.
+    const polledScanId = scanId.value;
+
     try {
-        const payload = await api.get(endpoint('import'), { params: { scan: scanId.value } });
+        const payload = await api.get(endpoint('import'), { params: { scan: polledScanId } });
+
+        if (scanId.value !== polledScanId) {
+            return true;
+        }
 
         return !applyScanResponse(payload);
     } catch (thrown) {
+        if (scanId.value !== polledScanId) {
+            return true;
+        }
+
         scanning.value = false;
         // Whatever this was, don't leave the screen blank with no explanation —
         // a not-quite-ApiError is still worth telling the operator about.
