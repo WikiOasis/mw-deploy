@@ -196,40 +196,9 @@ salt 'staging' cmd.run 'du -sh /srv/mediawiki-staging /srv/mediawiki; df -h /srv
 salt 'mw-*'    cmd.run 'df -h /srv'
 ```
 
-Removing an old version reclaims it in one `rm -rf versions/<ver>` per host, but the
-portal refuses that while any wiki still points at the version.
-
-## The wiki → version map
-
-Undeploying a core version reads the farm's own wiki → version mapping and refuses
-if any wiki still uses that version:
-
-```dotenv
-MWDEPLOY_WIKIVERSIONS_PATH=/srv/mediawiki/config/wikiversions.json
-MWDEPLOY_REQUIRE_WIKIVERSION_CHECK=true
-```
-
-The file is read **on the staging host**, through the shim, and must be a JSON object
-mapping wiki to version. All three of these are accepted:
-
-```json
-{"metawiki": "1.45"}
-{"metawiki": "php-1.45"}
-{"metawiki": {"version": "1.45"}}
-```
-
-Anything else is reported as unparseable and the removal is refused — failing closed,
-because guessing here means deleting the version every wiki is running on. Verify it
-before you need it:
-
-```bash
-salt 'staging' cmd.run_all 'mwdeploy-shim wiki-versions --file /srv/mediawiki/config/wikiversions.json'
-```
-
-`MWDEPLOY_REQUIRE_WIKIVERSION_CHECK=false` turns the check off for a farm whose map
-is genuinely unreachable. The versions page displays a standing warning while it is
-off, and it should stay on otherwise: it is the only thing between a typo and
-deleting a live version.
+Removing an old version reclaims it in one `rm -rf versions/<ver>` per host. The
+portal does not check whether any wiki still points at the version first — confirm
+that separately before undeploying.
 
 ## Patch files
 
@@ -353,10 +322,7 @@ salt 'mw-us-east-011' cmd.run_all 'rsync --list-only rsync://staging.wikioasis.o
 # 4. Can a proxy talk to its stats socket?
 salt 'proxy-1' cmd.run_all 'mwdeploy-shim haproxy repool --proxy proxy-1 --backend mediawiki --server mw-us-east-011'
 
-# 5. Can the wiki → version map be read? (Blocks version removal if not.)
-salt 'staging' cmd.run_all 'mwdeploy-shim wiki-versions --file /srv/mediawiki/config/wikiversions.json'
-
-# 5b. Can the tree be inventoried? (This is what the import screen runs.)
+# 5. Can the tree be inventoried? (This is what the import screen runs.)
 salt 'staging' cmd.run_all 'mwdeploy-shim tree-scan --root /srv/mediawiki-staging --no-metadata'
 #   → reports every version, extension and skin it can see. Read-only.
 

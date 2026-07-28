@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Repository;
 use App\Services\Discovery\ImportPlanner;
 use App\Services\Discovery\ScanFailed;
+use App\Services\Discovery\TreeScan;
 use App\Services\Discovery\TreeScanner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,34 +30,27 @@ final class ImportController extends Controller
     {
         $this->authorize('create', Repository::class);
 
-        try {
-            $scan = $scanner->scan(
-                versions: $this->requestedVersions($request),
-                fresh: $request->boolean('fresh'),
-            );
-        } catch (ScanFailed $failure) {
-            return response()->json([
-                'ok' => false,
-                'error' => $failure->getMessage(),
-                // Which host to go and look at — the portal's own salt CLI and the
-                // shim on staging fail in ways that look alike from here.
-                'hint' => $failure->hint(),
-            ], 422);
+        $scanId = $request->string('scan')->toString();
+
+        if ($scanId !== '') {
+            return $this->pollScan($scanId, $scanner, $planner, $apply);
         }
 
-        $plan = $planner->plan($scan);
+        $versions = $this->requestedVersions($request);
+        $fresh = $request->boolean('fresh');
+        $scan = $fresh ? null : $scanner->cached($versions);
 
-        // Reading the tree is also the only chance to record what it looks like, so
-        // the drift columns on the repository screens are populated whether or not
-        // anyone imports anything.
-        $observed = $apply->recordObservations($plan);
+        // A cached scan answers instantly, no Salt call involved — the common
+        // case of reopening the screen or a routine (non-"re-scan") reload.
+        if ($scan !== null) {
+            return $this->respondWithPlan($scan, $planner, $apply);
+        }
 
-        return response()->json([
-            'ok' => true,
-            'plan' => $plan->toArray(),
-            'observed_checkouts' => $observed,
-            'scanned_at' => now()->toIso8601String(),
-        ]);
+        try {
+            return $this->pollScan($scanner->startScan($versions), $scanner, $planner, $apply);
+        } catch (ScanFailed $failure) {
+            return $this->scanFailedResponse($failure);
+        }
     }
 
     public function store(Request $request, TreeScanner $scanner, ImportPlanner $planner, ApplyImport $apply): JsonResponse
@@ -67,23 +61,38 @@ final class ImportController extends Controller
             'keys' => ['sometimes', 'array'],
             'keys.*' => ['string', 'max:500'],
             'fresh' => ['sometimes', 'boolean'],
+            // The id of a scan already shown on the review screen. Reusing it
+            // avoids re-running tree-scan a second time just to apply what the
+            // first run already found; a re-derivation from a client-posted plan
+            // would defeat the point of scanning at all.
+            'scan_id' => ['sometimes', 'string', 'max:100'],
         ]);
 
+        $scan = null;
+
         try {
-            // Re-scan rather than trusting a plan the browser posted back: the keys
-            // are paths, and what they mean has to be re-derived from the tree. A
-            // stale selection then simply finds nothing to do instead of writing
-            // rows about a farm that has since changed.
-            $scan = $scanner->scan(
-                versions: $this->requestedVersions($request),
-                fresh: $request->boolean('fresh'),
-            );
+            if (isset($validated['scan_id'])) {
+                $scan = $scanner->pollScan($validated['scan_id']);
+
+                if ($scan === null) {
+                    return response()->json(['ok' => true, 'status' => 'pending', 'scan_id' => $validated['scan_id']]);
+                }
+            } else {
+                $versions = $this->requestedVersions($request);
+                $fresh = $request->boolean('fresh');
+                $scan = $fresh ? null : $scanner->cached($versions);
+
+                if ($scan === null) {
+                    $scanId = $scanner->startScan($versions);
+                    $scan = $scanner->pollScan($scanId);
+
+                    if ($scan === null) {
+                        return response()->json(['ok' => true, 'status' => 'pending', 'scan_id' => $scanId]);
+                    }
+                }
+            }
         } catch (ScanFailed $failure) {
-            return response()->json([
-                'ok' => false,
-                'error' => $failure->getMessage(),
-                'hint' => $failure->hint(),
-            ], 422);
+            return $this->scanFailedResponse($failure);
         }
 
         $plan = $planner->plan($scan);
@@ -95,6 +104,7 @@ final class ImportController extends Controller
 
         return response()->json([
             'ok' => true,
+            'status' => 'done',
             ...$outcome,
             'message' => $outcome['applied'] === 0
                 ? 'Nothing to import — the registry already describes the tree.'
@@ -106,6 +116,56 @@ final class ImportController extends Controller
                     $outcome['versions'],
                 ),
         ]);
+    }
+
+    /**
+     * Poll an in-flight or just-finished async scan and turn it into a response:
+     * still-running, failed-with-a-hint, or the same plan payload show() has
+     * always returned when it happens to finish inline.
+     */
+    private function pollScan(string $scanId, TreeScanner $scanner, ImportPlanner $planner, ApplyImport $apply): JsonResponse
+    {
+        try {
+            $scan = $scanner->pollScan($scanId);
+        } catch (ScanFailed $failure) {
+            return $this->scanFailedResponse($failure);
+        }
+
+        if ($scan === null) {
+            return response()->json(['ok' => true, 'status' => 'pending', 'scan_id' => $scanId]);
+        }
+
+        return $this->respondWithPlan($scan, $planner, $apply, $scanId);
+    }
+
+    private function respondWithPlan(TreeScan $scan, ImportPlanner $planner, ApplyImport $apply, ?string $scanId = null): JsonResponse
+    {
+        $plan = $planner->plan($scan);
+
+        // Reading the tree is also the only chance to record what it looks like, so
+        // the drift columns on the repository screens are populated whether or not
+        // anyone imports anything.
+        $observed = $apply->recordObservations($plan);
+
+        return response()->json([
+            'ok' => true,
+            'status' => 'done',
+            'scan_id' => $scanId,
+            'plan' => $plan->toArray(),
+            'observed_checkouts' => $observed,
+            'scanned_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    private function scanFailedResponse(ScanFailed $failure): JsonResponse
+    {
+        return response()->json([
+            'ok' => false,
+            'error' => $failure->getMessage(),
+            // Which host to go and look at — the portal's own salt CLI and the
+            // shim on staging fail in ways that look alike from here.
+            'hint' => $failure->hint(),
+        ], 422);
     }
 
     /**

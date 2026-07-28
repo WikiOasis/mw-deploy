@@ -87,7 +87,6 @@ final readonly class ImportPlan
             'root' => $this->scan->root,
             'shim_version' => $this->scan->shimVersion,
             'versions_on_disk' => $this->scan->versions,
-            'wiki_versions' => $this->scan->wikiVersions,
             'warnings' => $this->scan->warnings,
             'scan_counts' => $this->scan->counts(),
             'counts' => $this->counts(),

@@ -1224,16 +1224,6 @@ def cmd_tree_scan(args: argparse.Namespace) -> Result:
         "shim_version": VERSION,
     }
 
-    if args.wiki_versions:
-        # Folded into the same call because the two questions are always asked
-        # together: what is on disk, and what is actually serving traffic.
-        try:
-            namespace = argparse.Namespace(file=args.wiki_versions)
-            extra["wiki_versions"] = cmd_wiki_versions(namespace).extra.get("versions", {})
-        except ShimError as error:
-            extra["wiki_versions"] = None
-            warnings.append(f"wiki version map: {error.message}")
-
     return Result(
         ok=True,
         detail="scanned {}: {} version(s), {} checkout(s){}".format(
@@ -1243,64 +1233,6 @@ def cmd_tree_scan(args: argparse.Namespace) -> Result:
             f", {len(warnings)} warning(s)" if warnings else "",
         ),
         extra=extra,
-    )
-
-
-# --------------------------------------------------------------------------- #
-# wiki → version mapping
-# --------------------------------------------------------------------------- #
-
-
-def cmd_wiki_versions(args: argparse.Namespace) -> Result:
-    """Report which core versions the farm's wikis are currently pointed at.
-
-    This exists so that undeploying a core version can be *refused* when wikis
-    still run on it, rather than left to an operator's checklist.
-
-    The mapping lives in the config repo, not here, and its exact shape varies
-    between farms. Both common shapes are handled:
-
-        {"enwiki": "1.45", ...}
-        {"enwiki": {"version": "1.45"}, ...}
-
-    and a leading "php-" is tolerated because that is how Wikimedia writes it.
-    Anything else is reported as unparseable rather than guessed at — a wrong
-    answer here means deleting a version that is still serving traffic.
-    """
-    path = args.file
-
-    if not os.path.isfile(path):
-        raise ShimError(f"wiki version map not found: {path}")
-
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError) as exc:
-        raise ShimError(f"could not read {path}: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise ShimError(f"{path} is not a JSON object mapping wikis to versions")
-
-    versions: dict[str, list[str]] = {}
-
-    for wiki, value in data.items():
-        if isinstance(value, dict):
-            value = value.get("version")
-
-        if not isinstance(value, str) or not value.strip():
-            raise ShimError(f"{path}: could not read a version for wiki '{wiki}'")
-
-        version = value.strip().removeprefix("php-")
-        versions.setdefault(version, []).append(str(wiki))
-
-    return Result(
-        ok=True,
-        detail=f"{len(data)} wikis across {len(versions)} version(s): "
-        + ", ".join(f"{version} ({len(wikis)})" for version, wikis in sorted(versions.items())),
-        extra={
-            "versions": {version: sorted(wikis) for version, wikis in versions.items()},
-            "wiki_count": len(data),
-        },
     )
 
 
@@ -1602,20 +1534,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="no_metadata",
         help="Skip extension.json/skin.json parsing; faster, but names come from directories only",
     )
-    scan.add_argument(
-        "--wiki-versions",
-        default=None,
-        dest="wiki_versions",
-        help="Also report the wiki → version map from this file",
-    )
     scan.add_argument("--limit", type=int, default=5000, help="Ceiling on reported checkouts")
     scan.set_defaults(handler=cmd_tree_scan)
-
-    wiki_versions = subparsers.add_parser(
-        "wiki-versions", help="Report which core versions the farm's wikis point at"
-    )
-    wiki_versions.add_argument("--file", required=True, help="Path to the wiki → version JSON map")
-    wiki_versions.set_defaults(handler=cmd_wiki_versions)
 
     local = subparsers.add_parser("rsync-local", help="Rsync staging → production on this host")
     local.add_argument("--src", required=True)

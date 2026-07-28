@@ -462,7 +462,6 @@ final class TreeImportTest extends TestCase
             ],
             'counts' => ['core' => 2, 'extension' => 3, 'skin' => 1],
             'warnings' => [],
-            'wiki_versions' => ['1.45' => ['enwiki', 'metawiki']],
             'shim_version' => '2.1.0',
             ...$overrides,
         ];

@@ -765,77 +765,6 @@ class VersionScaffoldTest(unittest.TestCase):
         self.assertEqual([], payload["created"])
 
 
-class WikiVersionsTest(unittest.TestCase):
-    """Reading the wiki → version map, so undeploying a live version is refused."""
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
-
-    def write(self, content: str) -> Path:
-        path = self.root / "wikiversions.json"
-        path.write_text(content)
-
-        return path
-
-    def test_it_reads_plain_string_values(self):
-        path = self.write('{"metawiki": "1.45", "testwiki": "1.46"}')
-
-        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
-
-        self.assertEqual(0, code)
-        self.assertEqual(["metawiki"], payload["versions"]["1.45"])
-        self.assertEqual(["testwiki"], payload["versions"]["1.46"])
-
-    def test_it_tolerates_the_php_prefix_wikimedia_writes(self):
-        path = self.write('{"enwiki": "php-1.45"}')
-
-        _, payload, _ = run_shim("wiki-versions", "--file", str(path))
-
-        self.assertEqual(["enwiki"], payload["versions"]["1.45"])
-
-    def test_it_reads_nested_object_values(self):
-        path = self.write('{"enwiki": {"version": "1.45", "other": true}}')
-
-        _, payload, _ = run_shim("wiki-versions", "--file", str(path))
-
-        self.assertEqual(["enwiki"], payload["versions"]["1.45"])
-
-    def test_it_refuses_a_shape_it_does_not_understand(self):
-        # Guessing here would mean deleting a version that is still serving.
-        path = self.write('{"brokenwiki": 42}')
-
-        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
-
-        self.assertEqual(1, code)
-        self.assertIn("brokenwiki", payload["error"])
-
-    def test_it_refuses_a_non_object_document(self):
-        path = self.write('["1.45"]')
-
-        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
-
-        self.assertEqual(1, code)
-        self.assertIn("not a JSON object", payload["error"])
-
-    def test_it_refuses_invalid_json(self):
-        path = self.write("{not json")
-
-        code, payload, _ = run_shim("wiki-versions", "--file", str(path))
-
-        self.assertEqual(1, code)
-        self.assertIn("could not read", payload["error"])
-
-    def test_a_missing_map_is_a_failure_not_an_empty_answer(self):
-        code, payload, _ = run_shim("wiki-versions", "--file", str(self.root / "nope.json"))
-
-        self.assertEqual(1, code)
-        self.assertIn("not found", payload["error"])
-
-
 class TreeScanTest(unittest.TestCase):
     """The read-only inventory the portal adopts an existing farm from.
 
@@ -897,9 +826,6 @@ class TreeScanTest(unittest.TestCase):
 
         # Config lives outside the version trees.
         cls._clone("Echo", cls.tree / "config", "master")
-
-        cls.wiki_versions = root / "wikiversions.json"
-        cls.wiki_versions.write_text(json.dumps({"enwiki": "1.45", "metawiki": "php-1.45"}))
 
     @classmethod
     def _clone(cls, name: str, destination: Path, branch: str) -> None:
@@ -1064,20 +990,6 @@ class TreeScanTest(unittest.TestCase):
         self.assertNotIn("config", [entry["path"] for entry in payload["entries"]])
         self.assertNotIn("nowhere", [entry["path"] for entry in payload["entries"]])
 
-    def test_it_can_report_the_wiki_version_map_in_the_same_call(self):
-        payload = self.scan("--wiki-versions", str(self.wiki_versions))
-
-        # Both spellings of the map, including Wikimedia's "php-" prefix.
-        self.assertEqual({"1.45": ["enwiki", "metawiki"]}, payload["wiki_versions"])
-
-    def test_an_unreadable_wiki_version_map_is_a_warning_not_a_failure(self):
-        # The scan is how a farm is adopted; it must not be blocked by a file the
-        # portal does not own.
-        payload = self.scan("--wiki-versions", "/definitely/not/here.json")
-
-        self.assertIsNone(payload["wiki_versions"])
-        self.assertTrue(any("wiki version map" in warning for warning in payload["warnings"]))
-
     def test_the_limit_is_reported_rather_than_silently_truncating(self):
         payload = self.scan("--limit", "2")
 
@@ -1099,7 +1011,7 @@ class TreeScanTest(unittest.TestCase):
             }
 
         before = snapshot()
-        self.scan("--wiki-versions", str(self.wiki_versions))
+        self.scan()
 
         self.assertEqual(before, snapshot())
 

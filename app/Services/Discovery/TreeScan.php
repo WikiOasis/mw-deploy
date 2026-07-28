@@ -15,15 +15,12 @@ final readonly class TreeScan
     /**
      * @param  Collection<int, ScannedCheckout>  $checkouts
      * @param  list<string>  $versions  core versions found as versions/<ver> directories
-     * @param  array<string, list<string>>|null  $wikiVersions  version => wikis, null when the
-     *                                                          map could not be read
      * @param  list<string>  $warnings
      */
     public function __construct(
         public string $root,
         public Collection $checkouts,
         public array $versions,
-        public ?array $wikiVersions,
         public array $warnings,
         public ?string $shimVersion = null,
     ) {}
@@ -42,8 +39,6 @@ final readonly class TreeScan
             ->filter()
             ->values();
 
-        $wikiVersions = $payload['wiki_versions'] ?? null;
-
         return new self(
             root: (string) ($payload['root'] ?? $root),
             checkouts: $checkouts,
@@ -51,7 +46,6 @@ final readonly class TreeScan
                 static fn (mixed $version): string => (string) $version,
                 is_array($payload['versions'] ?? null) ? $payload['versions'] : [],
             )),
-            wikiVersions: is_array($wikiVersions) ? $wikiVersions : null,
             warnings: array_values(array_map(
                 static fn (mixed $warning): string => (string) $warning,
                 is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [],
@@ -103,15 +97,5 @@ final readonly class TreeScan
             ->groupBy(static fn (ScannedCheckout $checkout): string => $checkout->type->value)
             ->map(static fn (Collection $group): int => $group->count())
             ->all();
-    }
-
-    /**
-     * Wikis currently pointed at a core version, when the farm's map was readable.
-     *
-     * @return list<string>
-     */
-    public function wikisOn(string $version): array
-    {
-        return $this->wikiVersions[$version] ?? [];
     }
 }

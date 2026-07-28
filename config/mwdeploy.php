@@ -18,6 +18,12 @@ return [
     'salt' => [
         'binary' => env('MWDEPLOY_SALT_BINARY', '/usr/bin/salt'),
 
+        // The runner CLI, used only to poll a job started with `salt --async`
+        // (`salt-run jobs.lookup_jid <jid>`) — a separate binary from `salt`
+        // itself, and one that must be run on the same host as the master's job
+        // cache (the same host `salt.binary` runs on).
+        'run_binary' => env('MWDEPLOY_SALT_RUN_BINARY', '/usr/bin/salt-run'),
+
         // Salt execution module used to run the shim. `cmd.run_all` is the
         // default because it returns retcode/stdout/stderr separately, which is
         // what lets us distinguish "shim failed" from "shim printed nothing".
@@ -26,6 +32,15 @@ return [
 
         // Passed to `salt --timeout=N`. Per-step overrides live in 'timeouts'.
         'default_timeout' => (int) env('MWDEPLOY_SALT_TIMEOUT', 300),
+
+        // Ceilings on the *local* subprocess for starting an async job and for
+        // each poll of it — independent of how long the job itself is allowed to
+        // run once scheduled (that's still 'timeouts' below). Both are local,
+        // synchronous CLI calls the portal can safely make inline in an HTTP
+        // request: `salt --async` only waits for the master to accept the job,
+        // and `salt-run jobs.lookup_jid` only reads its job cache.
+        'async_start_timeout' => (int) env('MWDEPLOY_SALT_ASYNC_START_TIMEOUT', 30),
+        'async_poll_timeout' => (int) env('MWDEPLOY_SALT_ASYNC_POLL_TIMEOUT', 30),
 
         // Hard ceiling on the local subprocess, independent of Salt's own
         // timeout. Always give the subprocess more room than Salt so that a
@@ -74,7 +89,6 @@ return [
             'repo-register' => 900,
             'repo-remove' => 300,
             'version-scaffold' => 120,
-            'wiki-versions' => 60,
             'patch-apply' => 120,
             'rsync-local' => 1800,
             'rsync-remote' => 1800,
@@ -109,17 +123,6 @@ return [
         // Where patch files land on the staging host so the shim can reach
         // them. Laravel writes uploads here via the 'patches' filesystem disk.
         'patches' => env('MWDEPLOY_PATCH_PATH', '/srv/mediawiki/scripts/extensions/patches'),
-
-        /*
-         * The wiki → core version map, owned by the config repo rather than by
-         * this app. Read only to refuse undeploying a version that wikis are
-         * still pointed at.
-         *
-         * If the farm keeps this somewhere else, or in a shape the shim does not
-         * recognise, undeploying a version fails closed with a parse error rather
-         * than proceeding on a guess — see 'versions.require_wiki_version_check'.
-         */
-        'wiki_versions' => env('MWDEPLOY_WIKIVERSIONS_PATH', '/srv/mediawiki/config/wikiversions.json'),
 
         /*
          * Where the config repository (mw-config) is checked out, relative to the
@@ -177,26 +180,6 @@ return [
          * import screen instead.
          */
         'import_non_git' => (bool) env('MWDEPLOY_IMPORT_NON_GIT', false),
-    ],
-
-    /*
-    |---------------------------------------------------------------------------
-    | Version lifecycle
-    |---------------------------------------------------------------------------
-    */
-
-    'versions' => [
-        /*
-         * Refuse to undeploy a core version unless the wiki version map could be
-         * read *and* shows no wiki using it.
-         *
-         * Leave this on. Turning it off means an operator's judgement is the only
-         * thing standing between a typo and deleting the version every wiki is
-         * running on. It exists as a knob only because a farm whose map lives
-         * somewhere the shim cannot read would otherwise be unable to undeploy a
-         * version at all.
-         */
-        'require_wiki_version_check' => (bool) env('MWDEPLOY_REQUIRE_WIKIVERSION_CHECK', true),
     ],
 
     /*

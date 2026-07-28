@@ -24,7 +24,19 @@ final class FakeSaltClient implements SaltClient
     /** @var list<Closure(SaltCall): ?SaltResult> */
     private array $handlers = [];
 
+    /** @var array<string, SaltResult> jid => the result it will resolve to */
+    private array $asyncResults = [];
+
+    private int $asyncSequence = 0;
+
     public bool $defaultOk = true;
+
+    /**
+     * Jids started while this is true poll as "still running" (lookupJid()
+     * returns null) until it is turned back off — for asserting the pending/poll
+     * path without a real, slow Salt call.
+     */
+    public bool $asyncAlwaysPending = false;
 
     /**
      * Queue a canned answer for the next call matching $step (and optionally
@@ -81,6 +93,35 @@ final class FakeSaltClient implements SaltClient
         }
 
         return new SettledSaltCall($call, $this->result($call, $this->defaultOk));
+    }
+
+    public function startAsync(SaltCall $call): string
+    {
+        $this->calls[] = $call;
+
+        $result = null;
+
+        foreach ($this->handlers as $handler) {
+            $result = $handler($call);
+
+            if ($result instanceof SaltResult) {
+                break;
+            }
+        }
+
+        $jid = 'fake-jid-'.(++$this->asyncSequence);
+        $this->asyncResults[$jid] = $result ?? $this->result($call, $this->defaultOk);
+
+        return $jid;
+    }
+
+    public function lookupJid(string $jid, string $target): ?SaltResult
+    {
+        if ($this->asyncAlwaysPending) {
+            return null;
+        }
+
+        return $this->asyncResults[$jid] ?? null;
     }
 
     /**

@@ -214,18 +214,9 @@ tree" to rsync, so conflating "nothing to sync" with "sync everything" would tur
 removing one extension into a full-fleet tree walk. `SyncPlan` models the three
 cases explicitly.
 
-**Undeploying a version fails closed.** The runner reads the farm's wiki → version
-map through the shim and refuses if any wiki still uses that version — and also
-refuses if the map cannot be read or is in a shape the shim does not recognise.
-Guessing there means deleting the version everything is running on.
-`MWDEPLOY_REQUIRE_WIKIVERSION_CHECK` can disable it for a farm whose map is
-genuinely unreachable, and the versions page shows a warning when it is off.
-
-**Where the map lives is still a fact we need.** `MWDEPLOY_WIKIVERSIONS_PATH`
-defaults to `/srv/mediawiki/config/wikiversions.json` and the shim accepts
-`{"wiki": "1.45"}`, `{"wiki": "php-1.45"}` and `{"wiki": {"version": "1.45"}}`.
-**Confirm the real path and format**, because until that is right, version removal is
-blocked by design rather than by accident.
+**Undeploying a version is not gated on wiki usage.** The portal has no wiki →
+version map to check it against; whoever requests the undeploy is responsible for
+confirming no wiki still points at the version first.
 
 **The registry is only reconciled on success.** A deployment that failed halfway
 leaves the fleet in a state the registry cannot describe, so presence is not updated

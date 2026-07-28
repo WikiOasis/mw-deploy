@@ -132,7 +132,7 @@ final class ShimCalls
      * @param  list<string>  $versions  restrict to these core versions; empty scans
      *                                  everything, including unversioned checkouts
      */
-    public function treeScan(?string $root = null, array $versions = [], bool $withWikiVersions = true): SaltCall
+    public function treeScan(?string $root = null, array $versions = []): SaltCall
     {
         $root ??= $this->scanRoot();
 
@@ -142,10 +142,6 @@ final class ShimCalls
             ->option('limit', (int) config('mwdeploy.discovery.limit', 5000))
             ->flag('no-metadata', ! (bool) config('mwdeploy.discovery.read_manifests', true))
             ->repeatedOption('version', $versions);
-
-        if ($withWikiVersions) {
-            $command->option('wiki-versions', (string) config('mwdeploy.paths.wiki_versions'));
-        }
 
         return new SaltCall(
             target: $this->stagingTarget(),
@@ -256,20 +252,6 @@ final class ShimCalls
             root: $root,
             isVersionRoot: true,
             subject: 'versions/'.$version->version.($fromStaging ? ' (staging tree)' : ''),
-        );
-    }
-
-    /**
-     * Which core versions the farm's wikis currently point at, so undeploying a
-     * live version can be refused rather than checklisted.
-     */
-    public function wikiVersions(): SaltCall
-    {
-        return new SaltCall(
-            target: $this->stagingTarget(),
-            command: ShimCommand::make(StepName::WikiVersions)
-                ->option('file', (string) config('mwdeploy.paths.wiki_versions')),
-            subject: basename((string) config('mwdeploy.paths.wiki_versions')),
         );
     }
 
