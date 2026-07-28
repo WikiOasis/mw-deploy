@@ -292,6 +292,19 @@ final class TreeScanner
     }
 
     /**
+     * Seed the same cache slot a real scan would have filled, for a TreeScan built
+     * directly from pasted JSON rather than a Salt round-trip. Reusing the normal
+     * cache key means apply() needs no separate code path — it finds this scan the
+     * same way it finds any other cached one.
+     *
+     * @param  list<string>  $versions
+     */
+    public function cacheManual(TreeScan $scan, array $versions = []): void
+    {
+        Cache::put($this->cacheKey($versions), $scan, self::CACHE_TTL_SECONDS);
+    }
+
+    /**
      * @param  list<string>  $versions
      */
     private function cacheKey(array $versions = []): string

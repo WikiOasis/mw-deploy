@@ -70,6 +70,7 @@ Route::get('checkouts/{checkout}/blob', [RepoBrowserController::class, 'blob'])-
 // Adopting a farm that already exists: GET plans, POST applies.
 Route::get('import', [ImportController::class, 'show'])->name('api.import.show');
 Route::post('import', [ImportController::class, 'store'])->name('api.import.store');
+Route::post('import/manual', [ImportController::class, 'manual'])->name('api.import.manual');
 
 // Patches.
 Route::get('patches', [PatchController::class, 'index'])->name('api.patches.index');

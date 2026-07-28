@@ -474,6 +474,78 @@ final class TreeImportTest extends TestCase
     }
 
     #[Test]
+    public function a_manual_paste_builds_the_same_plan_a_scan_would_and_never_calls_salt(): void
+    {
+        $manager = $this->userWithPermissions([Permissions::REPOSITORIES_MANAGE]);
+
+        $payload = [
+            'root' => rtrim((string) config('mwdeploy.paths.staging'), '/'),
+            'versions' => ['1.45'],
+            'entries' => [$this->coreEntry('1.45'), $this->echoEntry('1.45', 'REL1_45')],
+            'warnings' => [],
+        ];
+
+        $response = $this->actingAs($manager)->postJson(route('api.import.manual'), [
+            'payload' => json_encode($payload),
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('ok', true);
+        $response->assertJsonPath('plan.root', $payload['root']);
+
+        // Nothing was sent to Salt at all — the whole point of the manual path.
+        $this->assertSame([], $this->salt->stepSequence());
+
+        $keys = $response->json('plan.recommended_keys');
+        $this->assertNotEmpty($keys);
+
+        $this->actingAs($manager)
+            ->postJson(route('api.import.store'), ['keys' => $keys])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $this->assertSame(2, Repository::query()->count()); // mediawiki, Echo
+    }
+
+    #[Test]
+    public function a_manual_paste_rejects_invalid_json_with_a_hint(): void
+    {
+        $manager = $this->userWithPermissions([Permissions::REPOSITORIES_MANAGE]);
+
+        $response = $this->actingAs($manager)->postJson(route('api.import.manual'), [
+            'payload' => 'not json at all',
+            'root' => '/srv/mediawiki-staging',
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('ok', false);
+        $response->assertJsonStructure(['error', 'hint']);
+    }
+
+    #[Test]
+    public function a_manual_paste_without_a_root_anywhere_is_rejected(): void
+    {
+        $manager = $this->userWithPermissions([Permissions::REPOSITORIES_MANAGE]);
+
+        $response = $this->actingAs($manager)->postJson(route('api.import.manual'), [
+            'payload' => json_encode(['entries' => [$this->coreEntry('1.45')]]),
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('ok', false);
+    }
+
+    #[Test]
+    public function the_manual_import_endpoint_is_behind_repositories_manage(): void
+    {
+        $reader = $this->userWithPermissions([Permissions::DEPLOY_EXTENSION]);
+
+        $this->actingAs($reader)->postJson(route('api.import.manual'), [
+            'payload' => json_encode(['entries' => []]),
+        ])->assertForbidden();
+    }
+
+    #[Test]
     public function the_artisan_command_is_a_dry_run_unless_told_otherwise(): void
     {
         $this->respondWithScan();
