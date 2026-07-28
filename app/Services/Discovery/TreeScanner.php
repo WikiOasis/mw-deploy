@@ -71,34 +71,50 @@ final class TreeScanner
      */
     public function startScan(array $versions = []): string
     {
-        $call = $this->calls->treeScan($this->calls->scanRoot(), $versions);
+        $inflightKey = self::ASYNC_CACHE_PREFIX.'inflight:'.md5($this->calls->scanRoot().'|'.implode(',', $versions));
 
-        try {
-            $jid = $this->salt->startAsync($call);
-        } catch (SaltAsyncStartFailed $failure) {
-            throw new ScanFailed(
-                sprintf('Could not start scanning %s on %s: %s', $call->subject, $call->target, $failure->getMessage()),
-                'This failed on the portal host, not on '.$call->target.' — the local '
-                    .config('mwdeploy.salt.binary').' did not run. Nothing was sent to the fleet.',
-            );
-        }
+        // Two concurrent cache misses (two operators opening the screen at once,
+        // or a page reload racing the first load) would otherwise each start
+        // their own tree-scan against the same target. A short lock collapses
+        // that into one in-flight job every caller polls.
+        return Cache::lock($inflightKey.':lock', 10)->block(5, function () use ($versions, $inflightKey): string {
+            $existing = Cache::get($inflightKey);
 
-        $scanId = (string) Str::uuid();
+            if (is_string($existing) && Cache::has(self::ASYNC_CACHE_PREFIX.$existing)) {
+                return $existing;
+            }
 
-        // Kept alive well past the point tree-scan's own Salt timeout plus
-        // process slack would have given up, so a slow-but-eventually-successful
-        // scan is never orphaned by its cache entry expiring mid-poll.
-        $ttl = $call->timeoutSeconds() + (int) config('mwdeploy.salt.process_timeout_slack', 60) + 300;
+            $call = $this->calls->treeScan($this->calls->scanRoot(), $versions);
 
-        Cache::put(self::ASYNC_CACHE_PREFIX.$scanId, [
-            'jid' => $jid,
-            'target' => $call->target,
-            'root' => $call->subject,
-            'versions' => $versions,
-            'deadline' => microtime(true) + $call->timeoutSeconds() + (int) config('mwdeploy.salt.process_timeout_slack', 60),
-        ], $ttl);
+            try {
+                $jid = $this->salt->startAsync($call);
+            } catch (SaltAsyncStartFailed $failure) {
+                throw new ScanFailed(
+                    sprintf('Could not start scanning %s on %s: %s', $call->subject, $call->target, $failure->getMessage()),
+                    'This failed on the portal host, not on '.$call->target.' — the local '
+                        .config('mwdeploy.salt.binary').' did not run. Nothing was sent to the fleet.',
+                );
+            }
 
-        return $scanId;
+            $scanId = (string) Str::uuid();
+
+            // Kept alive well past the point tree-scan's own Salt timeout plus
+            // process slack would have given up, so a slow-but-eventually-successful
+            // scan is never orphaned by its cache entry expiring mid-poll.
+            $ttl = $call->timeoutSeconds() + (int) config('mwdeploy.salt.process_timeout_slack', 60) + 300;
+
+            Cache::put(self::ASYNC_CACHE_PREFIX.$scanId, [
+                'jid' => $jid,
+                'target' => $call->target,
+                'root' => $call->subject,
+                'versions' => $versions,
+                'deadline' => microtime(true) + $call->timeoutSeconds() + (int) config('mwdeploy.salt.process_timeout_slack', 60),
+            ], $ttl);
+
+            Cache::put($inflightKey, $scanId, $ttl);
+
+            return $scanId;
+        });
     }
 
     /**
@@ -108,7 +124,7 @@ final class TreeScanner
      * scan() cache key (so a plain page reload sees the same picture instantly).
      *
      * @throws ScanFailed once the scan is done and failed, or has been running
-     *                     longer than tree-scan's own timeout allows
+     *                    longer than tree-scan's own timeout allows
      */
     public function pollScan(string $scanId): ?TreeScan
     {

@@ -19,6 +19,7 @@ use App\Services\Discovery\ImportPlan;
 use App\Services\Discovery\ImportPlanner;
 use App\Services\Discovery\ScanFailed;
 use App\Services\Discovery\TreeScanner;
+use App\Services\Salt\SaltAsyncStartFailed;
 use App\Services\Salt\Testing\FakeSaltClient;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -408,6 +409,24 @@ final class TreeImportTest extends TestCase
 
         $this->assertStringContainsString('failed on the portal host', $hint);
         $this->assertStringNotContainsString('tree-scan', $hint);
+    }
+
+    #[Test]
+    public function salt_async_never_starting_also_points_at_the_portal_host(): void
+    {
+        // `salt --async` itself never got as far as scheduling anything — a local
+        // CLI failure, same as the synchronous case, just caught before a JID
+        // exists to poll.
+        $this->salt->asyncStartFailure = new SaltAsyncStartFailed(
+            "Could not start [/usr/bin/salt] asynchronously: PermissionError: [Errno 13] Permission denied: '/var/www/.salt'",
+        );
+
+        $hint = $this->actingAs($this->admin())
+            ->getJson(route('api.import.show', ['fresh' => 1]))
+            ->assertStatus(422)
+            ->json('hint');
+
+        $this->assertStringContainsString('failed on the portal host', $hint);
     }
 
     #[Test]

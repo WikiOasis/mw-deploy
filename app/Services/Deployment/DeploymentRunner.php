@@ -86,8 +86,8 @@ final class DeploymentRunner
     {
         $refs = $deployment->repoRefs;
 
-        // Removing a whole core version is guarded on the farm's own wiki → version
-        // map, before anything is touched.
+        // Removing a whole core version requires that the deployment actually
+        // recorded one, checked before anything is touched.
         if (! $this->guardVersionUndeploy($deployment)) {
             return;
         }

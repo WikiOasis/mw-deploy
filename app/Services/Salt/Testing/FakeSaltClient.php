@@ -7,6 +7,7 @@ namespace App\Services\Salt\Testing;
 use App\Enums\StepName;
 use App\Services\Salt\Contracts\PendingSaltCall;
 use App\Services\Salt\Contracts\SaltClient;
+use App\Services\Salt\SaltAsyncStartFailed;
 use App\Services\Salt\SaltCall;
 use App\Services\Salt\SaltResult;
 use Closure;
@@ -37,6 +38,12 @@ final class FakeSaltClient implements SaltClient
      * path without a real, slow Salt call.
      */
     public bool $asyncAlwaysPending = false;
+
+    /**
+     * Set to make the next startAsync() throw, so a test can exercise
+     * TreeScanner::startScan()'s "the local salt CLI never ran" path.
+     */
+    public ?SaltAsyncStartFailed $asyncStartFailure = null;
 
     /**
      * Queue a canned answer for the next call matching $step (and optionally
@@ -97,6 +104,10 @@ final class FakeSaltClient implements SaltClient
 
     public function startAsync(SaltCall $call): string
     {
+        if ($this->asyncStartFailure !== null) {
+            throw $this->asyncStartFailure;
+        }
+
         $this->calls[] = $call;
 
         $result = null;

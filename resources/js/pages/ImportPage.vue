@@ -62,11 +62,12 @@ const poller = usePolling(async () => {
         return !applyScanResponse(payload);
     } catch (thrown) {
         scanning.value = false;
-
-        if (thrown instanceof ApiError) {
-            error.value = thrown;
-            plan.value = null;
-        }
+        // Whatever this was, don't leave the screen blank with no explanation —
+        // a not-quite-ApiError is still worth telling the operator about.
+        error.value = thrown instanceof ApiError
+            ? thrown
+            : new ApiError(0, { message: 'Something went wrong while checking on the scan.' });
+        plan.value = null;
 
         return false;
     }
@@ -84,11 +85,10 @@ const load = async (fresh = false) => {
         }
     } catch (thrown) {
         scanning.value = false;
-
-        if (thrown instanceof ApiError) {
-            error.value = thrown;
-            plan.value = null;
-        }
+        error.value = thrown instanceof ApiError
+            ? thrown
+            : new ApiError(0, { message: 'Something went wrong while loading the import screen.' });
+        plan.value = null;
     } finally {
         loading.value = false;
     }
