@@ -292,16 +292,25 @@ final class TreeScanner
     }
 
     /**
-     * Seed the same cache slot a real scan would have filled, for a TreeScan built
-     * directly from pasted JSON rather than a Salt round-trip. Reusing the normal
-     * cache key means apply() needs no separate code path — it finds this scan the
-     * same way it finds any other cached one.
+     * Cache a TreeScan built directly from pasted JSON rather than a Salt
+     * round-trip, and hand back a scan id pollScan() can resolve.
      *
-     * @param  list<string>  $versions
+     * Manual mode exists for when Salt itself is the thing that's broken — so
+     * apply() must not be able to fall back to starting a *real* scan if this
+     * one has merely aged out of the shared cache by the time the operator
+     * clicks Import. Storing it under the same async slot pollScan() already
+     * knows how to read (keyed by an id round-tripped through the client,
+     * not by root/versions) makes it exempt from that race: whatever cache
+     * a concurrent real scan is racing to fill, this scan id points at its
+     * own entry regardless.
      */
-    public function cacheManual(TreeScan $scan, array $versions = []): void
+    public function cacheManual(TreeScan $scan): string
     {
-        Cache::put($this->cacheKey($versions), $scan, self::CACHE_TTL_SECONDS);
+        $scanId = (string) Str::uuid();
+
+        Cache::put(self::ASYNC_CACHE_PREFIX.$scanId, ['scan' => $scan], self::CACHE_TTL_SECONDS);
+
+        return $scanId;
     }
 
     /**
