@@ -388,11 +388,12 @@ final class ShimCalls
      * the retry-then-ask logic lives in the job.
      */
     /**
-     * $host is the address curl pins the vhost to (--resolve), so the check
-     * exercises this specific server rather than whatever DNS or the proxy would
-     * otherwise have picked. Left null, the shim falls back to 127.0.0.1, which
-     * only works when the appserver's web server happens to listen on loopback —
-     * pass the target's real IP whenever one is known.
+     * $host is the address curl connects to directly; the vhost is sent as a
+     * Host header rather than resolved, so the check exercises this specific
+     * server regardless of what DNS or the proxy would otherwise have picked.
+     * Left null, the shim falls back to 127.0.0.1, which only works when the
+     * appserver's web server happens to listen on loopback — pass the target's
+     * real IP whenever one is known.
      */
     public function canary(string $hostname, ?string $vhost = null, ?int $retries = null, ?string $expect = null, ?string $host = null): SaltCall
     {

@@ -904,15 +904,17 @@ There is no importer; add them through the Targets screen. Per target:
 | `canary_vhost` | appservers only, if it differs from the global default |
 | `sort_order` | rollout order, lowest first |
 
-`ip_address` matters more than it looks: the canary check pins its vhost to an
-address with `curl --resolve {vhost}:{port}:{host}`, so it exercises *this*
-server rather than whatever DNS or the proxy would otherwise have picked. Left
-blank, the shim's `--host` falls back to `127.0.0.1` — fine when the appserver's
-web server listens on loopback, but on a fleet where it doesn't, every canary on
-that target fails to connect at all (`curl` exit 7, HTTP status `000`), which
-looks nothing like a content mismatch and is easy to misdiagnose as one. If a
-canary is failing with `status=000` rather than `marker=missing`, this is the
-first thing to check.
+`ip_address` matters more than it looks: the canary check connects directly to
+this address and sends the vhost as an HTTP `Host` header (`curl
+--header "Host: {vhost}" {scheme}://{host}:{port}{path}`) rather than resolving
+or DNS-pinning it, so it exercises *this* server's own listener regardless of
+what DNS or the proxy would otherwise have picked. Left blank, the shim's
+`--host` falls back to `127.0.0.1` — fine when the appserver's web server
+listens on loopback, but on a fleet where it doesn't, every canary on that
+target fails to connect at all (`curl` exit 7, HTTP status `000`), which looks
+nothing like a content mismatch and is easy to misdiagnose as one. If a canary
+is failing with `status=000` rather than `marker=missing`, this is the first
+thing to check.
 
 **If the salt repo is the source of truth for fleet membership** — and it probably
 is — a small artisan command that reads a pillar and upserts `deploy_targets` would
