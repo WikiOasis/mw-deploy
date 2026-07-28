@@ -88,6 +88,36 @@ final readonly class ScannedCheckout
     }
 
     /**
+     * The inverse of fromPayload() — one entry in the shape TreeScan::toCacheArray()
+     * needs so a scan can round-trip through a plain array rather than through PHP's
+     * object (un)serialization.
+     *
+     * @return array<string, mixed>
+     */
+    public function toEntryArray(): array
+    {
+        return [
+            'kind' => $this->type->value,
+            'name' => $this->name,
+            'path' => $this->path,
+            'version' => $this->version,
+            'is_git' => $this->isGit,
+            'core_version' => $this->coreVersion,
+            'git' => $this->isGit ? [
+                'url' => $this->gitUrl,
+                'ref_type' => $this->refType?->value,
+                'ref' => $this->ref,
+                'commit' => $this->commit,
+                'branch' => $this->branch,
+                'default_branch' => $this->defaultBranch,
+                'upstream' => $this->upstream,
+                'has_submodules' => $this->hasSubmodules,
+            ] : [],
+            'meta' => $this->manifest,
+        ];
+    }
+
+    /**
      * Stable identifier for this entry across a scan → review → apply round trip.
      *
      * The path, because that is what is unique on disk and what the operator is
