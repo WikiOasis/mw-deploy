@@ -47,7 +47,6 @@ final class ImportPlanner
             }
 
             $coreVersion = $scan->coreVersionFor($version);
-            $wikis = $scan->wikisOn($version);
 
             $entries->push(new ImportPlanEntry(
                 key: 'version:'.$version,
@@ -61,10 +60,6 @@ final class ImportPlanner
                 current: ['registered' => 'no'],
                 proposed: ['registered' => 'yes', 'core_version' => $coreVersion],
                 scanned: $scan->ofType(RepositoryType::Core)->firstWhere('version', $version),
-                note: $wikis === []
-                    ? null
-                    : count($wikis).' wiki(s) are pointed at this version: '.implode(', ', array_slice($wikis, 0, 8))
-                        .(count($wikis) > 8 ? ' …' : ''),
             ));
         }
 

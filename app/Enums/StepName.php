@@ -22,7 +22,6 @@ enum StepName: string
     case RepoRegister = 'repo-register';
     case RepoRemove = 'repo-remove';
     case VersionScaffold = 'version-scaffold';
-    case WikiVersions = 'wiki-versions';
     case PatchApply = 'patch-apply';
     case RsyncLocal = 'rsync-local';
     case RsyncRemote = 'rsync-remote';
@@ -43,7 +42,6 @@ enum StepName: string
             self::RepoRegister => 'Register repository',
             self::RepoRemove => 'Remove checkout',
             self::VersionScaffold => 'Scaffold version tree',
-            self::WikiVersions => 'Read wiki version map',
             self::PatchApply => 'Apply patch',
             self::RsyncLocal => 'Rsync staging → production (local)',
             self::RsyncRemote => 'Rsync to appserver',

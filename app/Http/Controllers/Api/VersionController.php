@@ -46,8 +46,6 @@ final class VersionController extends Controller
             ],
             'settings' => [
                 'max_parallel' => (int) config('mwdeploy.rollout.max_parallel', 8),
-                'wiki_version_check' => (bool) config('mwdeploy.versions.require_wiki_version_check', true),
-                'wiki_versions_path' => (string) config('mwdeploy.paths.wiki_versions'),
             ],
             'can' => [
                 'create' => request()->user()?->can('create', MediaWikiVersion::class) ?? false,

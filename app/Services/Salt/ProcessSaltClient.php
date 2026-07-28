@@ -54,6 +54,83 @@ final class ProcessSaltClient implements SaltClient
         return new ProcessPendingSaltCall($call, $process, $this->parser);
     }
 
+    public function startAsync(SaltCall $call): string
+    {
+        $process = new Process($call->asyncArgv(), env: $this->environment());
+
+        // Only waiting for Salt to accept the job and hand back a JID, not for any
+        // minion to finish — a few seconds at most, regardless of how long the
+        // call itself is allowed to run once scheduled.
+        $process->setTimeout((int) config('mwdeploy.salt.async_start_timeout', 30));
+
+        try {
+            $process->run();
+        } catch (ExceptionInterface $exception) {
+            throw new SaltAsyncStartFailed(sprintf(
+                'Could not start [%s] asynchronously: %s',
+                (string) config('mwdeploy.salt.binary'),
+                $exception->getMessage(),
+            ));
+        }
+
+        $decoded = json_decode(trim($process->getOutput()), true);
+        $jid = is_array($decoded) ? ($decoded['jid'] ?? null) : null;
+
+        if (! is_string($jid) || $jid === '') {
+            $detail = trim($process->getErrorOutput()) !== ''
+                ? trim($process->getErrorOutput())
+                : trim($process->getOutput());
+
+            throw new SaltAsyncStartFailed(sprintf(
+                'salt --async did not hand back a job ID (exit %d): %s',
+                $process->getExitCode() ?? -1,
+                $detail === '' ? '(no output)' : $detail,
+            ));
+        }
+
+        return $jid;
+    }
+
+    public function lookupJid(string $jid, string $target): ?SaltResult
+    {
+        $process = new Process(
+            [(string) config('mwdeploy.salt.run_binary'), '--out=json', 'jobs.lookup_jid', $jid],
+            env: $this->environment(),
+        );
+
+        // A local master-side cache read — same order of magnitude as
+        // startAsync(), independent of how long the job itself has been running.
+        $process->setTimeout((int) config('mwdeploy.salt.async_poll_timeout', 30));
+
+        try {
+            $process->run();
+        } catch (ExceptionInterface $exception) {
+            return new SaltResult(
+                ok: false,
+                target: $target,
+                retcode: null,
+                error: sprintf('Could not run [%s] jobs.lookup_jid: %s', (string) config('mwdeploy.salt.run_binary'), $exception->getMessage()),
+            );
+        }
+
+        // jobs.lookup_jid returns the minion-keyed result map directly (the same
+        // shape --out=json gives a synchronous call), not nested under the jid.
+        $envelope = json_decode(trim($process->getOutput()), true);
+
+        // No minion has reported back into the job cache yet — jobs.lookup_jid
+        // answers an unfinished job with {}, not an error. The caller polls again.
+        if (! is_array($envelope) || $envelope === []) {
+            return null;
+        }
+
+        return $this->parser->parseEnvelope(
+            target: $target,
+            envelope: $envelope,
+            rawSaltOutput: $process->getOutput(),
+            saltExitCode: $process->getExitCode() ?? 0,
+        );
+    }
+
     /**
      * Environment overrides for the subprocess.
      *

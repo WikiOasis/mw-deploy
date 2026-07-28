@@ -7,6 +7,7 @@ import CardPanel from '../components/CardPanel.vue';
 import LoadState from '../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { shortRef } from '../format';
+import { usePolling } from '../live';
 import { flash, flashError, refreshSession, session } from '../store';
 
 /**
@@ -20,28 +21,74 @@ import { flash, flashError, refreshSession, session } from '../store';
  *
  * Nothing here writes to disk. Applying an import creates or updates registry rows
  * only; the code it describes is already checked out.
+ *
+ * A scan runs on staging via `salt --async` and is polled with
+ * `salt-run jobs.lookup_jid` rather than blocked on inline — a farm big enough to
+ * take minutes to scan would otherwise have nginx or HAProxy give up on the
+ * request before the portal did. Most scans still finish inside the very first
+ * request (`scanning` never turns true); only a slow one falls back to polling.
  */
 const plan = ref(null);
 const loading = ref(true);
 const error = ref(null);
 const busy = ref(false);
+const scanning = ref(false);
+const scanId = ref(null);
 const selected = ref(new Set());
 const showInSync = ref(false);
 
+/** @returns {boolean} true once the scan is done (success or failure) */
+const applyScanResponse = (payload) => {
+    if (payload.status === 'pending') {
+        scanId.value = payload.scan_id;
+        scanning.value = true;
+
+        return false;
+    }
+
+    scanning.value = false;
+    scanId.value = payload.scan_id ?? null;
+    plan.value = payload.plan;
+    selected.value = new Set(payload.plan.recommended_keys);
+    error.value = null;
+
+    return true;
+};
+
+const poller = usePolling(async () => {
+    try {
+        const payload = await api.get(endpoint('import'), { params: { scan: scanId.value } });
+
+        return !applyScanResponse(payload);
+    } catch (thrown) {
+        scanning.value = false;
+        // Whatever this was, don't leave the screen blank with no explanation —
+        // a not-quite-ApiError is still worth telling the operator about.
+        error.value = thrown instanceof ApiError
+            ? thrown
+            : new ApiError(0, { message: 'Something went wrong while checking on the scan.' });
+        plan.value = null;
+
+        return false;
+    }
+}, { interval: 4000 });
+
 const load = async (fresh = false) => {
     loading.value = true;
+    poller.stop();
 
     try {
         const payload = await api.get(endpoint('import'), { params: fresh ? { fresh: 1 } : {} });
 
-        plan.value = payload.plan;
-        selected.value = new Set(payload.plan.recommended_keys);
-        error.value = null;
-    } catch (thrown) {
-        if (thrown instanceof ApiError) {
-            error.value = thrown;
-            plan.value = null;
+        if (!applyScanResponse(payload)) {
+            poller.start();
         }
+    } catch (thrown) {
+        scanning.value = false;
+        error.value = thrown instanceof ApiError
+            ? thrown
+            : new ApiError(0, { message: 'Something went wrong while loading the import screen.' });
+        plan.value = null;
     } finally {
         loading.value = false;
     }
@@ -79,7 +126,21 @@ const apply = async () => {
     busy.value = true;
 
     try {
-        const payload = await api.post(endpoint('import'), { keys: [...selected.value] });
+        const payload = await api.post(endpoint('import'), {
+            keys: [...selected.value],
+            scan_id: scanId.value ?? undefined,
+        });
+
+        if (payload.status === 'pending') {
+            // The scan we showed expired between page-load and this click (or
+            // never finished); it started a new one. Poll it and let the
+            // operator hit Import again once the plan is back.
+            applyScanResponse(payload);
+            poller.start();
+            flash('Still scanning the tree — try Import again once the plan reloads.', 'info');
+
+            return;
+        }
 
         flash(payload.message);
         payload.summary?.slice(0, 12).forEach((line) => flash(line, 'info'));
@@ -93,7 +154,6 @@ const apply = async () => {
     }
 };
 
-const wikiVersionEntries = computed(() => Object.entries(plan.value?.wiki_versions ?? {}));
 </script>
 
 <template>
@@ -108,7 +168,7 @@ const wikiVersionEntries = computed(() => Object.entries(plan.value?.wiki_versio
             <button
                 type="button"
                 class="ml-auto rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300 disabled:opacity-50"
-                :disabled="loading || busy"
+                :disabled="loading || busy || scanning"
                 @click="load(true)"
             >
                 Re-scan
@@ -116,7 +176,17 @@ const wikiVersionEntries = computed(() => Object.entries(plan.value?.wiki_versio
         </header>
 
         <LoadState :loading="loading" :error="error" @retry="load">
-            <div v-if="plan" class="space-y-4">
+            <div
+                v-if="scanning && !plan"
+                class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500"
+            >
+                <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
+                Scanning <code class="font-mono">{{ session.settings.staging_path }}</code> on
+                <code class="font-mono">{{ session.settings.staging_host }}</code>… a large farm can take a while;
+                this page keeps checking on it.
+            </div>
+
+            <div v-else-if="plan" class="space-y-4">
                 <div class="grid gap-4 sm:grid-cols-4">
                     <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                         <p class="text-xs tracking-wide text-slate-500 uppercase">On disk</p>
@@ -234,7 +304,7 @@ const wikiVersionEntries = computed(() => Object.entries(plan.value?.wiki_versio
                     <button
                         type="button"
                         class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
-                        :disabled="busy || selected.size === 0"
+                        :disabled="busy || scanning || selected.size === 0"
                         @click="apply"
                     >
                         {{ busy ? 'Importing…' : `Import ${selected.size} change(s)` }}
@@ -260,19 +330,6 @@ const wikiVersionEntries = computed(() => Object.entries(plan.value?.wiki_versio
                         </ul>
                     </CardPanel>
                 </div>
-
-                <CardPanel v-if="wikiVersionEntries.length > 0" title="What the wikis are running">
-                    <p class="text-xs text-slate-500">
-                        Read from <code class="font-mono">{{ session.settings.wiki_versions_path }}</code>. The portal
-                        does not own this map — it reads it to refuse undeploying a version wikis still use.
-                    </p>
-                    <ul class="mt-2 space-y-1 text-sm">
-                        <li v-for="[version, wikis] in wikiVersionEntries" :key="version">
-                            <span class="font-medium">{{ version }}</span>
-                            <span class="text-slate-500"> — {{ wikis.length }} wiki(s)</span>
-                        </li>
-                    </ul>
-                </CardPanel>
 
                 <div v-if="inSync.length > 0">
                     <button type="button" class="text-sm text-slate-600 underline" @click="showInSync = !showInSync">

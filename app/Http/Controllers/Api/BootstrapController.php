@@ -74,8 +74,6 @@ final class BootstrapController extends Controller
                 'production_path' => (string) config('mwdeploy.paths.production'),
                 'scan_root' => (string) config('mwdeploy.discovery.scan_root'),
                 'config_dir' => (string) config('mwdeploy.paths.config_dir'),
-                'wiki_versions_path' => (string) config('mwdeploy.paths.wiki_versions'),
-                'wiki_version_check' => (bool) config('mwdeploy.versions.require_wiki_version_check'),
                 'default_parallel' => (int) config('mwdeploy.rollout.default_parallel', 1),
                 'max_parallel' => (int) config('mwdeploy.rollout.max_parallel', 8),
                 'canary_vhost' => (string) config('mwdeploy.rollout.canary_vhost'),

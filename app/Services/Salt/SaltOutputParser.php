@@ -40,6 +40,25 @@ final class SaltOutputParser
             );
         }
 
+        return $this->parseEnvelope($target, $envelope, $saltStdout, $saltExitCode, $durationSeconds);
+    }
+
+    /**
+     * The minion-keyed part of parse(), split out so a job looked up later via
+     * `salt-run jobs.lookup_jid` — which returns the same per-minion shape, just
+     * fetched from the job cache instead of a live subprocess — can be parsed
+     * with the exact same rules instead of duplicating them.
+     *
+     * @param  array<string, mixed>  $envelope
+     */
+    public function parseEnvelope(
+        string $target,
+        array $envelope,
+        string $rawSaltOutput,
+        int $saltExitCode,
+        float $durationSeconds = 0.0,
+    ): SaltResult {
+        $saltStdout = $rawSaltOutput;
         $minionReturn = $envelope[$target] ?? (count($envelope) === 1 ? reset($envelope) : null);
 
         if ($minionReturn === null) {
@@ -48,7 +67,7 @@ final class SaltOutputParser
                 target: $target,
                 retcode: $saltExitCode,
                 stdout: $saltStdout,
-                stderr: $saltStderr,
+                stderr: '',
                 error: "Salt returned no result for minion [{$target}].",
                 rawSaltOutput: $saltStdout,
                 durationSeconds: $durationSeconds,

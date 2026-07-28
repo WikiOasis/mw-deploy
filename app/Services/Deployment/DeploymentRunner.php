@@ -86,8 +86,8 @@ final class DeploymentRunner
     {
         $refs = $deployment->repoRefs;
 
-        // Removing a whole core version is guarded on the farm's own wiki → version
-        // map, before anything is touched.
+        // Removing a whole core version requires that the deployment actually
+        // recorded one, checked before anything is touched.
         if (! $this->guardVersionUndeploy($deployment)) {
             return;
         }
@@ -144,12 +144,9 @@ final class DeploymentRunner
     }
 
     /**
-     * Undeploying a core version is refused while wikis still point at it.
-     *
-     * Fails closed: if the map cannot be read or is in a shape the shim does not
-     * recognise, that is a refusal rather than a shrug, because the alternative is
-     * deleting the version every wiki is running on. The check can be turned off
-     * for a farm whose map lives somewhere unreachable.
+     * A core version can only be undeployed if the deployment actually recorded
+     * one. Whether any wiki still runs on it is left to whoever requests the
+     * undeploy — the portal has no wiki → version map to check it against.
      */
     private function guardVersionUndeploy(Deployment $deployment): bool
     {
@@ -157,53 +154,11 @@ final class DeploymentRunner
             return true;
         }
 
-        $version = $deployment->mediawikiVersion;
-
-        if ($version === null) {
+        if ($deployment->mediawikiVersion === null) {
             $this->finish($deployment, DeploymentStatus::Failed, 'No core version was recorded on this deployment.');
 
             return false;
         }
-
-        if (! config('mwdeploy.versions.require_wiki_version_check', true)) {
-            return true;
-        }
-
-        $call = $this->calls->wikiVersions();
-        $step = $this->recorder->begin($call);
-        $result = $this->salt->run($call);
-        $this->recorder->finish($step, $result);
-
-        if (! $result->ok) {
-            $this->finish(
-                $deployment,
-                DeploymentStatus::Failed,
-                'Could not read the wiki version map, so removing '.$version->version
-                .' was refused: '.$result->detail(),
-            );
-
-            return false;
-        }
-
-        $inUse = $result->payloadValue('versions', []);
-        $wikis = is_array($inUse) ? ($inUse[$version->version] ?? []) : [];
-
-        if (is_array($wikis) && $wikis !== []) {
-            $this->finish(
-                $deployment,
-                DeploymentStatus::Failed,
-                sprintf(
-                    'Refused: %d wiki(s) still run on %s (%s). Move them to another version first.',
-                    count($wikis),
-                    $version->version,
-                    implode(', ', array_slice($wikis, 0, 10)).(count($wikis) > 10 ? ', …' : ''),
-                ),
-            );
-
-            return false;
-        }
-
-        $this->recorder->note($step, 'no wikis point at '.$version->version.'; removal may proceed');
 
         return true;
     }

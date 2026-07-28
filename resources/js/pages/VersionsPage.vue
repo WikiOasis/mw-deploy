@@ -307,15 +307,9 @@ const remove = async () => {
                     {{ removing.checkout_counts?.total ?? 0 }} checkout(s) go with it.
                 </p>
 
-                <p v-if="data.settings.wiki_version_check" class="text-sm text-slate-600">
-                    The runner reads
-                    <code class="font-mono text-xs">{{ data.settings.wiki_versions_path }}</code> first and
-                    refuses if any wiki still points at {{ removing.version }} — failing closed if that file
-                    cannot be read.
-                </p>
-                <p v-else class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-900">
-                    The wiki → version check is <strong>disabled</strong> in this install. Nothing will stop this
-                    removing a version that wikis are still serving.
+                <p class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                    The portal does not check whether any wiki still points at {{ removing.version }} before
+                    removing it — confirm that separately before continuing.
                 </p>
 
                 <FormField

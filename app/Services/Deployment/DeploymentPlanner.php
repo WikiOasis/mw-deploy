@@ -44,10 +44,6 @@ final class DeploymentPlanner
     ): array {
         $planned = [];
 
-        if ($intent === DeploymentIntent::VersionUndeploy && $version !== null) {
-            $planned[] = new PlannedCall('Preparation', $this->calls->wikiVersions());
-        }
-
         // The undo point, read before anything mutates.
         foreach ($refs as $ref) {
             $checkout = $ref->repositoryVersion;

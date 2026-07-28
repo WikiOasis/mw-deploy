@@ -54,7 +54,6 @@ final class VersionLifecycleTest extends TestCase
             'mwdeploy.shim.binary' => '/usr/local/bin/mwdeploy-shim',
             'mwdeploy.paths.staging' => '/srv/mediawiki-staging',
             'mwdeploy.paths.production' => '/srv/mediawiki',
-            'mwdeploy.paths.wiki_versions' => '/srv/mediawiki/config/wikiversions.json',
             'mwdeploy.decisions.timeout' => 0,
         ]);
 
@@ -202,8 +201,6 @@ final class VersionLifecycleTest extends TestCase
         $this->extension('Thanks', $this->v45, 'master');
         DeployTarget::factory()->create(['hostname' => 'mw-01']);
 
-        $this->allowVersionRemoval();
-
         $deployment = $this->undeployVersion();
 
         $this->runJob($deployment);
@@ -230,69 +227,10 @@ final class VersionLifecycleTest extends TestCase
         $thanks = $this->extension('Thanks', $this->v45, 'master');
         DeployTarget::factory()->create();
 
-        $this->allowVersionRemoval();
-
         $this->runJob($this->undeployVersion());
 
         $this->assertSame(PresenceStatus::Undeployed, $echo->fresh()->status);
         $this->assertSame(PresenceStatus::Undeployed, $thanks->fresh()->status);
-        $this->assertSame(PresenceStatus::Undeployed, $this->v45->fresh()->status);
-    }
-
-    #[Test]
-    public function it_refuses_to_remove_a_version_wikis_still_run_on(): void
-    {
-        $this->extension('Echo', $this->v45, 'REL1_45');
-        DeployTarget::factory()->create();
-
-        $this->salt->alwaysRespondTo(StepName::WikiVersions, true, [
-            'versions' => ['1.45' => ['metawiki', 'testwiki']],
-        ]);
-
-        $deployment = $this->undeployVersion();
-
-        $this->runJob($deployment);
-
-        $deployment->refresh();
-
-        $this->assertSame(DeploymentStatus::Failed, $deployment->status);
-        $this->assertStringContainsString('2 wiki(s) still run on 1.45', (string) $deployment->failure_reason);
-        $this->assertStringContainsString('metawiki', (string) $deployment->failure_reason);
-
-        // Nothing was deleted, and the registry still says the version is there.
-        $this->salt->assertNeverRan(StepName::RepoRemove);
-        $this->assertSame(PresenceStatus::Present, $this->v45->fresh()->status);
-    }
-
-    #[Test]
-    public function it_fails_closed_when_the_wiki_version_map_cannot_be_read(): void
-    {
-        $this->extension('Echo', $this->v45, 'REL1_45');
-        DeployTarget::factory()->create();
-
-        $this->salt->alwaysRespondTo(StepName::WikiVersions, false);
-
-        $deployment = $this->undeployVersion();
-
-        $this->runJob($deployment);
-
-        // Guessing here would mean deleting a version that might be serving.
-        $this->assertSame(DeploymentStatus::Failed, $deployment->fresh()->status);
-        $this->assertStringContainsString('Could not read the wiki version map', (string) $deployment->fresh()->failure_reason);
-        $this->salt->assertNeverRan(StepName::RepoRemove);
-    }
-
-    #[Test]
-    public function the_check_can_be_disabled_for_a_farm_whose_map_is_unreachable(): void
-    {
-        config(['mwdeploy.versions.require_wiki_version_check' => false]);
-
-        $this->extension('Echo', $this->v45, 'REL1_45');
-        DeployTarget::factory()->create();
-
-        $this->runJob($this->undeployVersion());
-
-        $this->salt->assertNeverRan(StepName::WikiVersions);
         $this->assertSame(PresenceStatus::Undeployed, $this->v45->fresh()->status);
     }
 
@@ -303,7 +241,6 @@ final class VersionLifecycleTest extends TestCase
         $thanks = $this->extension('Thanks', $this->v45, 'master');
         DeployTarget::factory()->create();
 
-        $this->allowVersionRemoval();
         $this->salt->alwaysRespondTo(StepName::GitHead, true, ['ref' => 'REL1_45', 'ref_type' => 'branch']);
 
         $deployment = $this->undeployVersion();
@@ -406,12 +343,6 @@ final class VersionLifecycleTest extends TestCase
         $this->assertNull($outcome['error']);
 
         return $outcome['deployment']->fresh();
-    }
-
-    /** No wiki uses the version, so the guard lets the removal through. */
-    private function allowVersionRemoval(): void
-    {
-        $this->salt->alwaysRespondTo(StepName::WikiVersions, true, ['versions' => ['1.46' => ['metawiki']]]);
     }
 
     private function runJob(Deployment $deployment): void

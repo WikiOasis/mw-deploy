@@ -37,8 +37,7 @@ human; do not guess.
 | 9 | Whether nginx or Apache fronts PHP on the master already | existing states | reuse vs. add |
 | 10 | The domain to serve the portal on | a human | everything TLS-related |
 | 11 | Whether the farm already has an NFS export of the MediaWiki tree | a human / mount states | decides section 5 |
-| 12 | Path and format of the **wiki → core version map** | mw-config / `wikiversions.json` | `MWDEPLOY_WIKIVERSIONS_PATH`; blocks version removal until right |
-| 13 | Which core versions exist right now, and each one's release branch | the staging tree / existing mwdeploy config | seeding versions and their pins |
+| 12 | Which core versions exist right now, and each one's release branch | the staging tree / existing mwdeploy config | seeding versions and their pins |
 
 ### Decisions that need a human, not you
 
@@ -372,26 +371,15 @@ These are the ones only you can fill in, from the facts gathered in section 0:
 | `MWDEPLOY_DEFAULT_PARALLEL` | `1` | start conservative |
 | `MWDEPLOY_MAX_PARALLEL` | `8` | ceiling the UI will offer |
 | `MWDEPLOY_GIT_DRIVER` | `salt` | `local` only if the master *is* the staging host |
-| `MWDEPLOY_WIKIVERSIONS_PATH` | **fact 12** | read on the staging host to refuse removing a version wikis still use |
 | `MWDEPLOY_CONFIG_DIR` | `config` | where mw-config is checked out, relative to the deploy root |
 | `MWDEPLOY_SALT_HOME` | `storage/framework/salt` | HOME for the salt subprocess; the CLI creates `~/.salt` and dies if it cannot. Leave unset, or point it at a directory www-data owns |
 | `MWDEPLOY_SCAN_ROOT` | `staging` | which tree the import screen inventories: `staging` or `production` |
-| `MWDEPLOY_REQUIRE_WIKIVERSION_CHECK` | `true` | leave it on; see the warning below |
 | `MWDEPLOY_DECISION_TIMEOUT` | `900` | how long a canary prompt waits for a human |
 | `MWDEPLOY_DECISION_TIMEOUT_DEFAULT` | `abort_and_rollback` | what happens if nobody answers |
 
-**On `MWDEPLOY_WIKIVERSIONS_PATH`:** undeploying a core version reads this file (via
-the shim, on the staging host) and refuses if any wiki still points at that version.
-It also refuses if the file cannot be read or is in a shape the shim does not
-recognise — failing closed, because guessing means deleting the version everything
-is running on. The shim accepts `{"wiki": "1.45"}`, `{"wiki": "php-1.45"}` and
-`{"wiki": {"version": "1.45"}}`.
-
-Get this path right. If it is wrong, version removal is *blocked* rather than
-dangerous — which is the correct failure direction, but it will look like a bug.
-`MWDEPLOY_REQUIRE_WIKIVERSION_CHECK=false` disables the check; do not set it unless
-the map genuinely cannot be reached, and expect the versions page to display a
-standing warning while it is off.
+The portal does not check whether any wiki still points at a core version before
+undeploying it — there is no wiki → version map involved. Confirm that separately,
+by whatever means the farm actually uses, before undeploying a version.
 
 ### 3.6 Migrate, seed, cache
 
@@ -557,6 +545,43 @@ The second must return JSON with `retcode: 0`. If it fails as `www-data` but wor
 as root, the ACL or the socket permissions are wrong — fix that here, not by
 falling back to Option B without comment.
 
+### Async jobs: a second binary and the master's job cache
+
+The import screen's tree-scan (the one long-running read in the app) runs via
+`salt --async` instead of blocking the request, and is polled afterwards with
+`salt-run jobs.lookup_jid <jid>` — a **separate binary** from `salt` itself
+(`MWDEPLOY_SALT_RUN_BINARY`, default `/usr/bin/salt-run`), run as `www-data` the
+same way. `publisher_acl` above only grants `salt`; `salt-run` needs its own
+grant, typically:
+
+```yaml
+# master config
+client_acl:
+  www-data:
+    - jobs.lookup_jid
+```
+
+(Salt versions and ACL mechanisms for runners vary more than for `publisher_acl`
+— confirm the exact directive name against the version in use, rather than
+assuming this snippet is verbatim-correct.)
+
+**This also needs the master's job cache turned on and retained long enough to
+poll.** By default Salt keeps job returns in `job_cache` for `keep_jobs` hours
+(24 by default) — if a previous integration disabled `job_cache` or set
+`keep_jobs` very low, `salt-run jobs.lookup_jid` will answer every poll with `{}`
+(indistinguishable, from the portal's side, from "still running") until the
+portal's own poll deadline gives up and reports a timeout, even though the job
+actually ran and finished. Verify before relying on it:
+
+```bash
+sudo -u www-data /usr/bin/salt --out=json --async 'staging' cmd.run_all 'mwdeploy-shim --version'
+# note the jid it prints, then:
+sudo -u www-data /usr/bin/salt-run --out=json jobs.lookup_jid <jid>
+```
+
+The second command should show the minion's return within a second or two of
+the first. If it keeps coming back `{}`, that's the job cache, not the portal.
+
 ---
 
 ## 5. rsync daemon on the staging host
@@ -716,7 +741,9 @@ server {
         fastcgi_hide_header X-Powered-By;
 
         # The review screen and history can be slow with a long deploy history,
-        # but nothing here should take minutes — the long work is in the queue.
+        # but nothing here should take minutes — the long work is in the queue,
+        # and the import screen's tree-scan runs via `salt --async` (section 4)
+        # rather than blocking this request for however long the scan takes.
         fastcgi_read_timeout 120s;
     }
 
@@ -1023,11 +1050,6 @@ appservers are in. Separate them.
 **Patch dry runs fail after migration.** Expected. `--fuzz=0` refuses patches whose
 context no longer matches; they were previously applying to approximately the
 right place. Fix the patch files, do not re-enable fuzz.
-
-**Undeploying a version is refused and you are sure no wiki uses it.** The map at
-`MWDEPLOY_WIKIVERSIONS_PATH` could not be read, or is in a shape the shim does not
-recognise. Check the step log — the failure quotes the reason. Fix the path or the
-format rather than disabling the check.
 
 **A new version's extensions are all on the wrong branch.** Copied checkouts inherit
 the source version's pin, which for a release branch means 1.46 got 1.45's REL1_45.

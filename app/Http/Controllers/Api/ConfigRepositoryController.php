@@ -67,7 +67,6 @@ final class ConfigRepositoryController extends Controller
         return response()->json([
             'repository' => $registered === null ? null : (new RepositoryResource($registered))->resolve(),
             'config_dir' => (string) config('mwdeploy.paths.config_dir'),
-            'wiki_versions_path' => (string) config('mwdeploy.paths.wiki_versions'),
             'suggested_name' => (string) config('mwdeploy.discovery.config_repository_name'),
             'on_disk' => $onDisk,
             'scan_error' => $scanError,

@@ -19,6 +19,7 @@ use App\Services\Discovery\ImportPlan;
 use App\Services\Discovery\ImportPlanner;
 use App\Services\Discovery\ScanFailed;
 use App\Services\Discovery\TreeScanner;
+use App\Services\Salt\SaltAsyncStartFailed;
 use App\Services\Salt\Testing\FakeSaltClient;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -372,6 +373,50 @@ final class TreeImportTest extends TestCase
     }
 
     #[Test]
+    public function re_scanning_always_asks_salt_again_rather_than_reusing_the_last_scan(): void
+    {
+        $this->respondWithScan();
+
+        $admin = $this->admin();
+
+        $this->actingAs($admin)->getJson(route('api.import.show', ['fresh' => 1]))->assertOk();
+        // A second "Re-scan" moments later, well inside the in-flight scan's TTL —
+        // it must not silently reuse the first scan's job.
+        $this->actingAs($admin)->getJson(route('api.import.show', ['fresh' => 1]))->assertOk();
+
+        $this->assertCount(2, $this->salt->callsFor(StepName::TreeScan));
+    }
+
+    #[Test]
+    public function an_older_scan_finishing_after_a_newer_one_does_not_clobber_the_shared_cache(): void
+    {
+        $scanner = app(TreeScanner::class);
+        $root = rtrim((string) config('mwdeploy.paths.staging'), '/');
+
+        // Two distinct, single-use responses so each startScan() gets its own —
+        // respondTo() (unlike alwaysRespondTo()) is consumed after firing once.
+        $this->salt->respondTo(StepName::TreeScan, true, payload: [
+            'root' => $root, 'versions' => [], 'entries' => [], 'warnings' => ['scan A'],
+        ]);
+        $this->salt->respondTo(StepName::TreeScan, true, payload: [
+            'root' => $root, 'versions' => [], 'entries' => [], 'warnings' => ['scan B'],
+        ]);
+
+        $scanIdA = $scanner->startScan(fresh: true);
+
+        // A second "Re-scan" supersedes A as the current pointer before A is
+        // ever polled — e.g. A is slow and the operator clicks Re-scan again.
+        $scanIdB = $scanner->startScan(fresh: true);
+
+        // B is polled first and legitimately updates the shared cache.
+        $scanner->pollScan($scanIdB);
+        // A finishes after B but must not overwrite it — A is no longer current.
+        $scanner->pollScan($scanIdA);
+
+        $this->assertSame(['scan B'], $scanner->cached()->warnings);
+    }
+
+    #[Test]
     public function the_api_reports_a_scan_failure_with_a_hint_rather_than_an_empty_plan(): void
     {
         $this->salt->respondTo(StepName::TreeScan, false);
@@ -408,6 +453,24 @@ final class TreeImportTest extends TestCase
 
         $this->assertStringContainsString('failed on the portal host', $hint);
         $this->assertStringNotContainsString('tree-scan', $hint);
+    }
+
+    #[Test]
+    public function salt_async_never_starting_also_points_at_the_portal_host(): void
+    {
+        // `salt --async` itself never got as far as scheduling anything — a local
+        // CLI failure, same as the synchronous case, just caught before a JID
+        // exists to poll.
+        $this->salt->asyncStartFailure = new SaltAsyncStartFailed(
+            "Could not start [/usr/bin/salt] asynchronously: PermissionError: [Errno 13] Permission denied: '/var/www/.salt'",
+        );
+
+        $hint = $this->actingAs($this->admin())
+            ->getJson(route('api.import.show', ['fresh' => 1]))
+            ->assertStatus(422)
+            ->json('hint');
+
+        $this->assertStringContainsString('failed on the portal host', $hint);
     }
 
     #[Test]
@@ -462,7 +525,6 @@ final class TreeImportTest extends TestCase
             ],
             'counts' => ['core' => 2, 'extension' => 3, 'skin' => 1],
             'warnings' => [],
-            'wiki_versions' => ['1.45' => ['enwiki', 'metawiki']],
             'shim_version' => '2.1.0',
             ...$overrides,
         ];

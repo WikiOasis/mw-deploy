@@ -48,6 +48,26 @@ final readonly class SaltCall
     }
 
     /**
+     * The argv for `salt --async ...`: identical to argv() but swapping
+     * --static (which forces the CLI to wait for every minion) for --async
+     * (which hands back a job ID instead of waiting). --out=json is kept so the
+     * kickoff's own stdout — `{"jid": "...", "minions": [...]}` — is a single
+     * parseable line rather than the human-readable "Executed command with job
+     * ID: ..." text.
+     *
+     * @return list<string>
+     */
+    public function asyncArgv(): array
+    {
+        return array_merge(
+            [(string) config('mwdeploy.salt.binary')],
+            ['--out=json', '--async', '--timeout='.$this->timeoutSeconds()],
+            array_values(array_filter((array) config('mwdeploy.salt.extra_args', []))),
+            [$this->target, (string) config('mwdeploy.salt.command_module'), $this->command->toString()],
+        );
+    }
+
+    /**
      * Human-readable rendering of argv, suitable for the review screen.
      */
     public function describe(): string
