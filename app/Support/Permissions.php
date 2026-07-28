@@ -29,6 +29,14 @@ final class Permissions
 
     public const DEPLOY_POOL = 'deploy.pool';
 
+    /**
+     * Force-fails a deployment the pipeline itself will never resolve — a worker
+     * that died mid-job, leaving the fleet-wide lock held. Deliberately separate
+     * from DEPLOY_DECIDE: abort/cancel work *with* a live worker that is still
+     * polling for them, this bypasses the pipeline's own safety checks entirely.
+     */
+    public const DEPLOY_FORCE_FAIL = 'deploy.force_fail';
+
     /*
      * Removal is gated separately from deployment throughout. Being trusted to
      * update an extension is not the same as being trusted to delete it off the
@@ -71,6 +79,7 @@ final class Permissions
             self::DEPLOY_ROLLBACK => 'Roll back a past deployment',
             self::DEPLOY_DECIDE => 'Answer a blocking canary-failure prompt on a running deployment',
             self::DEPLOY_POOL => 'Manually depool or repool a server',
+            self::DEPLOY_FORCE_FAIL => 'Force-fail a deployment whose worker has died, and release the fleet-wide deploy lock',
 
             self::UNDEPLOY_EXTENSION => 'Remove an extension checkout from staging and every server',
             self::UNDEPLOY_SKIN => 'Remove a skin checkout from staging and every server',

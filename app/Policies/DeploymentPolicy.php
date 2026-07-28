@@ -99,4 +99,19 @@ final class DeploymentPolicy
         return $deployment->status === DeploymentStatus::Pending
             && $user->hasPermission(Permissions::DEPLOY_DECIDE);
     }
+
+    /**
+     * The last resort: a deployment the pipeline itself will never resolve
+     * because the worker that was running it is gone. Restricted to
+     * DEPLOY_FORCE_FAIL (admin only in the seeder) rather than DEPLOY_DECIDE —
+     * unlike abort/cancel, this does not coordinate with a live worker still
+     * polling for an answer, it unilaterally declares the deployment over and
+     * frees the fleet-wide lock, so misusing it on a deployment that is not
+     * actually stuck can corrupt real progress.
+     */
+    public function forceFail(User $user, Deployment $deployment): bool
+    {
+        return ! $deployment->status->isTerminal()
+            && $user->hasPermission(Permissions::DEPLOY_FORCE_FAIL);
+    }
 }

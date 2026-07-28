@@ -32,6 +32,7 @@ const busy = ref(false);
 const showRollback = ref(false);
 const showCancel = ref(false);
 const showAbort = ref(false);
+const showForceFail = ref(false);
 
 const { state, live, finished, start } = useDeploymentState(props.id);
 
@@ -161,6 +162,21 @@ const abort = async (decision) => {
         busy.value = false;
     }
 };
+
+const forceFail = async () => {
+    busy.value = true;
+
+    try {
+        const payload = await api.post(endpoint(`deployments/${props.id}/force-fail`), {});
+
+        flash(payload.message);
+        showForceFail.value = false;
+    } catch (thrown) {
+        flashError(thrown);
+    } finally {
+        busy.value = false;
+    }
+};
 </script>
 
 <template>
@@ -208,6 +224,15 @@ const abort = async (decision) => {
                         @click="showRollback = true"
                     >
                         Roll back
+                    </button>
+                    <button
+                        v-if="deployment.can.force_fail"
+                        type="button"
+                        class="rounded-md px-3 py-1.5 font-medium text-rose-700 ring-1 ring-inset ring-rose-300 hover:bg-rose-50 disabled:opacity-50"
+                        :disabled="busy"
+                        @click="showForceFail = true"
+                    >
+                        Force fail
                     </button>
                 </div>
             </header>
@@ -471,6 +496,44 @@ const abort = async (decision) => {
                     @click="showAbort = false"
                 >
                     Never mind
+                </button>
+            </template>
+        </ModalDialog>
+
+        <ModalDialog
+            v-if="showForceFail"
+            title="Force-fail this deployment?"
+            subtitle="Only use this when the deployment is genuinely stuck, not merely slow."
+            danger
+            @close="showForceFail = false"
+        >
+            <p class="text-sm">
+                Unlike Abort, this does not wait for a worker to notice — it unilaterally marks deployment
+                #{{ deployment?.id }} failed and releases the fleet-wide deploy lock immediately. It exists for the
+                one case nothing else covers: the worker that was running this deployment has died, so nothing is
+                ever going to answer an abort request, and every deployment queued since has been silently stuck
+                behind the lock this one never released.
+            </p>
+            <p class="mt-2 text-sm text-rose-700">
+                If a worker is in fact still processing this deployment, forcing it here will not stop that work —
+                it will just make the portal's record of it wrong. Confirm the worker is actually gone first.
+            </p>
+
+            <template #footer>
+                <button
+                    type="button"
+                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    @click="showForceFail = false"
+                >
+                    Never mind
+                </button>
+                <button
+                    type="button"
+                    class="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-50"
+                    :disabled="busy"
+                    @click="forceFail"
+                >
+                    Force fail
                 </button>
             </template>
         </ModalDialog>
