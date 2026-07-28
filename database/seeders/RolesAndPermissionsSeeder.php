@@ -21,8 +21,8 @@ final class RolesAndPermissionsSeeder extends Seeder
 {
     /** @var array<string, array{description: string, permissions: list<string>}> */
     private const ROLES = [
-        'admin' => [
-            'description' => 'Full access, including --force, version removal and user management',
+        'ops' => [
+            'description' => 'For members of the ops group',
             'permissions' => [
                 P::DEPLOY_CORE, P::DEPLOY_EXTENSION, P::DEPLOY_SKIN, P::DEPLOY_CONFIG,
                 P::DEPLOY_PRODUCTION_SERVERS, P::DEPLOY_FORCE_FLAG, P::DEPLOY_ROLLBACK,
@@ -32,38 +32,24 @@ final class RolesAndPermissionsSeeder extends Seeder
                 P::TARGETS_MANAGE, P::USERS_MANAGE,
             ],
         ],
-        'release-manager' => [
-            'description' => 'Cuts new core versions and deploys anything, but cannot remove a version',
+        'mediawiki-admins' => [
+            'description' => 'For members of the mediawiki-admins group',
             'permissions' => [
                 P::DEPLOY_CORE, P::DEPLOY_EXTENSION, P::DEPLOY_SKIN, P::DEPLOY_CONFIG,
                 P::DEPLOY_PRODUCTION_SERVERS, P::DEPLOY_ROLLBACK, P::DEPLOY_DECIDE, P::DEPLOY_POOL,
                 P::UNDEPLOY_EXTENSION, P::UNDEPLOY_SKIN,
-                P::VERSIONS_MANAGE, P::REPOSITORIES_MANAGE,
+                P::VERSIONS_MANAGE, P::REPOSITORIES_MANAGE, P::DEPLOY_FORCE_FLAG
             ],
         ],
-        'deployer' => [
-            'description' => 'Can deploy anything to production, but cannot remove anything or use --force',
+        'beta' => [
+            'description' => 'Can deploy to beta',
             'permissions' => [
-                P::DEPLOY_CORE, P::DEPLOY_EXTENSION, P::DEPLOY_SKIN, P::DEPLOY_CONFIG,
-                P::DEPLOY_PRODUCTION_SERVERS, P::DEPLOY_ROLLBACK, P::DEPLOY_DECIDE, P::DEPLOY_POOL,
-            ],
-        ],
-        'extension-maintainer' => [
-            'description' => 'Deploys and removes extensions and skins; scope further with repository_permissions',
-            'permissions' => [
-                P::DEPLOY_EXTENSION, P::DEPLOY_SKIN,
-                P::UNDEPLOY_EXTENSION, P::UNDEPLOY_SKIN,
-                P::DEPLOY_PRODUCTION_SERVERS, P::DEPLOY_ROLLBACK,
-            ],
-        ],
-        'responder' => [
-            'description' => 'Cannot deploy forward, but can roll back and answer canary prompts',
-            'permissions' => [
-                P::DEPLOY_ROLLBACK, P::DEPLOY_DECIDE, P::DEPLOY_POOL,
+                P::DEPLOY_CORE, P::DEPLOY_EXTENSION, P::DEPLOY_SKIN, P::DEPLOY_CONFIG
+                P::DEPLOY_ROLLBACK, P::DEPLOY_DECIDE, P::DEPLOY_FORCE_FLAG
             ],
         ],
         'viewer' => [
-            'description' => 'Read-only access to the repo browser, versions and deployment history',
+            'description' => 'Limited read-only access',
             'permissions' => [],
         ],
     ];
