@@ -681,6 +681,41 @@ class CanaryTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual("canary.invalid", received_host["value"])
 
+    def test_a_non_200_response_still_passes_if_the_marker_is_present(self):
+        # Only the body content is a canary failure now — a 503 from a maintenance
+        # page or a redirect that still renders the wiki isn't one, matching the
+        # icinga check this mirrors: it only alarms on missing MediaWiki content.
+        import http.server
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'<meta name="generator" content="MediaWiki 1.45.0"/>'
+                self.send_response(503)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            code, payload, _ = run_shim(
+                "canary", "--vhost", "canary.invalid", "--host", "127.0.0.1",
+                "--port", str(port), "--scheme", "http",
+                "--expect", 'content="MediaWiki', "--retries", "1", "--timeout", "5",
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+
+        self.assertEqual(0, code)
+        self.assertTrue(payload["ok"])
+
     def test_it_never_waits_for_input(self):
         # There is no TTY under `salt cmd.run`; the retry/prompt decision belongs
         # to the portal. Closing stdin must not hang the check.
