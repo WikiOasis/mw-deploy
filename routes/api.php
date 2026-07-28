@@ -46,6 +46,10 @@ Route::post('deployments/{deployment}/decision', [DeploymentDecisionController::
     ->name('api.deployments.decision');
 Route::post('deployments/{deployment}/rollback', [DeploymentDecisionController::class, 'rollback'])
     ->name('api.deployments.rollback');
+Route::post('deployments/{deployment}/cancel', [DeploymentDecisionController::class, 'cancel'])
+    ->name('api.deployments.cancel');
+Route::post('deployments/{deployment}/abort', [DeploymentDecisionController::class, 'abort'])
+    ->name('api.deployments.abort');
 
 // Core versions.
 Route::get('versions', [VersionController::class, 'index'])->name('api.versions.index');

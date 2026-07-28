@@ -6,6 +6,7 @@ namespace App\Services\Deployment;
 
 use App\Enums\DecisionReason;
 use App\Enums\DeploymentDecision;
+use App\Enums\DeploymentStatus;
 use App\Events\DeploymentProgressed;
 use App\Models\Deployment;
 use Illuminate\Support\Carbon;
@@ -79,6 +80,9 @@ class DecisionGate
     /**
      * Blocking wait, used by the sequential staging phase.
      *
+     * Also resolves on a manual abort request — an operator hitting "abort" does
+     * not need to know a canary prompt happens to be open right now for it to work.
+     *
      * @param  array<string, mixed>  $context
      */
     public function await(Deployment $deployment, DecisionReason $reason, array $context): DeploymentDecision
@@ -94,8 +98,66 @@ class DecisionGate
                 return $decision;
             }
 
+            $rollback = $this->abortRequested($deployment);
+
+            if ($rollback !== null) {
+                return $rollback ? DeploymentDecision::AbortAndRollback : DeploymentDecision::Abort;
+            }
+
             $this->sleep($interval);
         }
+    }
+
+    /**
+     * Record an operator's out-of-band "stop this deployment" request. Unlike
+     * request()/record(), this is not tied to a specific prompt the job raised —
+     * it can land at any point while the deployment is running, and the runner
+     * checks for it at its own checkpoints (between steps, between servers)
+     * rather than only inside a blocking prompt.
+     *
+     * Guarded to only apply while the deployment is still running, so a request
+     * that arrives after the deployment has already finished on its own is a
+     * harmless no-op rather than a stray write.
+     */
+    public function requestAbort(Deployment $deployment, bool $rollback, ?int $userId): bool
+    {
+        $updated = DB::table('deployments')
+            ->where('id', $deployment->getKey())
+            ->where('status', DeploymentStatus::Running->value)
+            ->update([
+                'abort_requested_at' => now(),
+                'abort_requested_by' => $userId,
+                'abort_rollback' => $rollback,
+                'updated_at' => now(),
+            ]);
+
+        if ($updated > 0) {
+            DeploymentProgressed::dispatch($deployment->fresh());
+        }
+
+        return $updated > 0;
+    }
+
+    /**
+     * Non-blocking check for a manual abort request, read straight from the
+     * database for the same reason poll() does: the runner's in-memory model was
+     * loaded before the browser's request landed.
+     *
+     * @return bool|null null when nothing has been requested, otherwise whether a
+     *                   rollback was asked for alongside the abort
+     */
+    public function abortRequested(Deployment $deployment): ?bool
+    {
+        $row = DB::table('deployments')
+            ->where('id', $deployment->getKey())
+            ->select('abort_requested_at', 'abort_rollback')
+            ->first();
+
+        if ($row === null || $row->abort_requested_at === null) {
+            return null;
+        }
+
+        return (bool) $row->abort_rollback;
     }
 
     /**

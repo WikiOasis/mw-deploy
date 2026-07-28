@@ -24,6 +24,7 @@ use Illuminate\Support\Collection;
     'rolls_back_deployment_id',
     'pending_decision', 'pending_decision_context', 'pending_decision_requested_at',
     'decision_response', 'decision_by', 'decision_answered_at',
+    'abort_requested_at', 'abort_requested_by', 'abort_rollback',
     'failure_reason', 'started_at', 'finished_at',
 ])]
 class Deployment extends Model
@@ -42,6 +43,8 @@ class Deployment extends Model
             'decision_response' => DeploymentDecision::class,
             'pending_decision_requested_at' => 'datetime',
             'decision_answered_at' => 'datetime',
+            'abort_requested_at' => 'datetime',
+            'abort_rollback' => 'boolean',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
         ];
@@ -55,6 +58,11 @@ class Deployment extends Model
     public function decidedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'decision_by');
+    }
+
+    public function abortRequestedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'abort_requested_by');
     }
 
     public function mediawikiVersion(): BelongsTo

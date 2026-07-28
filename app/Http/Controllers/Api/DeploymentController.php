@@ -57,7 +57,7 @@ final class DeploymentController extends Controller
         $this->authorize('view', $deployment);
 
         $deployment->load([
-            'creator', 'decidedBy', 'rollsBack', 'rollbacks', 'mediawikiVersion',
+            'creator', 'decidedBy', 'abortRequestedBy', 'rollsBack', 'rollbacks', 'mediawikiVersion',
             'repoRefs.repositoryVersion.repository', 'repoRefs.repositoryVersion.mediawikiVersion',
             'snapshots.repositoryVersion.repository', 'snapshots.repositoryVersion.mediawikiVersion',
             'deploymentPatches.patch', 'steps',

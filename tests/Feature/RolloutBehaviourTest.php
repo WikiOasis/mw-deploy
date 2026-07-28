@@ -319,6 +319,107 @@ final class RolloutBehaviourTest extends TestCase
     }
 
     #[Test]
+    public function a_manually_requested_abort_stops_before_the_next_checkout(): void
+    {
+        DeployTarget::factory()->create();
+        $second = $this->extension('Vector', $this->version, 'REL1_45');
+
+        $deployment = Deployment::factory()->create([
+            'created_by' => $this->actor->getKey(),
+            'options' => (new DeploymentOptions(stagingOnly: true))->toArray(),
+        ]);
+        DeploymentRepoRef::factory()->create([
+            'deployment_id' => $deployment->getKey(),
+            'repository_version_id' => $this->echo->getKey(),
+            'ref_value' => 'REL1_45',
+        ]);
+        DeploymentRepoRef::factory()->create([
+            'deployment_id' => $deployment->getKey(),
+            'repository_version_id' => $second->getKey(),
+            'ref_value' => 'REL1_45',
+        ]);
+
+        // Simulates an operator clicking "Abort" the moment the first checkout
+        // runs: the runner cannot interrupt that call, but must stop before the
+        // second one starts.
+        $this->salt->onCall(
+            StepName::GitCheckout,
+            fn () => $this->decisions->requestAbort($deployment->fresh(), false, $this->actor->getKey()),
+        );
+
+        $this->runJob($deployment->fresh());
+
+        $this->assertSame(DeploymentStatus::Aborted, $deployment->fresh()->status);
+        $this->assertStringContainsString('aborted by operator', (string) $deployment->fresh()->failure_reason);
+        $this->assertCount(1, $this->salt->callsFor(StepName::GitCheckout));
+        $this->salt->assertNeverRan(StepName::RsyncLocal);
+    }
+
+    #[Test]
+    public function a_manually_requested_abort_enqueues_a_rollback_once_staging_has_mutated(): void
+    {
+        DeployTarget::factory()->create();
+        $second = $this->extension('Vector', $this->version, 'REL1_45');
+
+        $this->salt->alwaysRespondTo(StepName::GitHead, true, ['ref' => 'oldsha1234', 'ref_type' => 'commit']);
+
+        $deployment = Deployment::factory()->create([
+            'created_by' => $this->actor->getKey(),
+            'options' => (new DeploymentOptions(stagingOnly: true))->toArray(),
+        ]);
+        DeploymentRepoRef::factory()->create([
+            'deployment_id' => $deployment->getKey(),
+            'repository_version_id' => $this->echo->getKey(),
+            'ref_value' => 'REL1_45',
+        ]);
+        DeploymentRepoRef::factory()->create([
+            'deployment_id' => $deployment->getKey(),
+            'repository_version_id' => $second->getKey(),
+            'ref_value' => 'REL1_45',
+        ]);
+
+        $this->salt->onCall(
+            StepName::GitCheckout,
+            fn () => $this->decisions->requestAbort($deployment->fresh(), true, $this->actor->getKey()),
+        );
+
+        $this->runJob($deployment->fresh());
+
+        $this->assertSame(DeploymentStatus::Aborted, $deployment->fresh()->status);
+        $this->assertDatabaseHas('deployments', ['rolls_back_deployment_id' => $deployment->getKey()]);
+    }
+
+    #[Test]
+    public function a_manually_requested_abort_mid_rollout_skips_the_servers_it_never_reached(): void
+    {
+        DeployTarget::factory()->create(['hostname' => 'mw-01', 'sort_order' => 1]);
+        DeployTarget::factory()->create(['hostname' => 'mw-02', 'sort_order' => 2]);
+
+        $deployment = $this->deployment(new DeploymentOptions(servers: ['mw-01', 'mw-02'], parallel: 1));
+
+        // Fires the moment mw-01's rsync lands, well before a canary would ever
+        // have had a chance to fail — proving the abort is not piggybacking on
+        // the canary-decision machinery.
+        $this->salt->onCall(
+            StepName::RsyncRemote,
+            fn () => $this->decisions->requestAbort($deployment->fresh(), false, $this->actor->getKey()),
+        );
+
+        $this->runJob($deployment);
+
+        $this->assertSame(DeploymentStatus::Aborted, $deployment->fresh()->status);
+        $this->salt->assertRan(StepName::RsyncRemote, 'mw-01');
+        $this->salt->assertNeverRan(StepName::RsyncRemote, 'mw-02');
+        $this->assertSame(0, Deployment::query()->whereNotNull('rolls_back_deployment_id')->count());
+
+        $this->assertDatabaseHas('deployment_steps', [
+            'deployment_id' => $deployment->getKey(),
+            'target_hostname' => 'mw-02',
+            'status' => StepStatus::Skipped->value,
+        ]);
+    }
+
+    #[Test]
     public function parallelism_keeps_more_than_one_server_in_flight(): void
     {
         foreach (['mw-01', 'mw-02', 'mw-03'] as $index => $hostname) {

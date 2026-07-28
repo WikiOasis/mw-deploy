@@ -82,6 +82,25 @@ final class FakeSaltClient implements SaltClient
         return $this;
     }
 
+    /**
+     * Run an arbitrary side effect the moment a call for $step starts, then fall
+     * through to the default response. Simulates something happening
+     * concurrently with the deployment — an operator clicking "abort" while a
+     * particular step is running — without the test needing real concurrency.
+     */
+    public function onCall(StepName $step, Closure $sideEffect): self
+    {
+        $this->handlers[] = function (SaltCall $call) use ($step, $sideEffect): ?SaltResult {
+            if ($call->step() === $step) {
+                $sideEffect($call);
+            }
+
+            return null;
+        };
+
+        return $this;
+    }
+
     public function run(SaltCall $call): SaltResult
     {
         return $this->start($call)->wait();

@@ -37,6 +37,8 @@ final class RolloutPool
 
     private bool $rollbackRequested = false;
 
+    private bool $abortedManually = false;
+
     /**
      * @param  Collection<int, DeployTarget>  $servers
      * @param  Collection<int, DeployTarget>  $proxies
@@ -68,6 +70,8 @@ final class RolloutPool
         ));
 
         while ($queue !== [] || $this->slots !== []) {
+            $this->checkManualAbort();
+
             while (! $this->aborted && $queue !== [] && count($this->slots) < $limit) {
                 $this->open(array_shift($queue));
             }
@@ -93,9 +97,42 @@ final class RolloutPool
         return $this->aborted;
     }
 
+    /**
+     * An operator's "abort" click is not tied to any one slot's canary prompt, so
+     * it is checked once per pass rather than inside resolveDecision(). Reuses the
+     * exact same aborted/rollbackRequested flags a canary-triggered abort sets, so
+     * drain() and advance() need no separate manual-abort code path.
+     */
+    private function checkManualAbort(): void
+    {
+        if ($this->aborted) {
+            return;
+        }
+
+        $rollback = $this->decisions->abortRequested($this->deployment);
+
+        if ($rollback === null) {
+            return;
+        }
+
+        $this->aborted = true;
+        $this->rollbackRequested = $rollback;
+        $this->abortedManually = true;
+    }
+
     public function rollbackRequested(): bool
     {
         return $this->rollbackRequested;
+    }
+
+    /**
+     * Whether the abort came from an operator's manual request rather than a
+     * canary failure — the runner uses this to write an accurate reason instead
+     * of always blaming "a canary failure".
+     */
+    public function abortedManually(): bool
+    {
+        return $this->abortedManually;
     }
 
     /**
