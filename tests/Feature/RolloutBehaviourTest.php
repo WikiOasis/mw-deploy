@@ -24,8 +24,10 @@ use App\Services\Salt\SaltCall;
 use App\Services\Salt\Testing\FakeSaltClient;
 use App\Support\DeploymentOptions;
 use App\Support\Permissions;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\AutoAnsweringDecisionGate;
 use Tests\TestCase;
@@ -417,6 +419,28 @@ final class RolloutBehaviourTest extends TestCase
             'target_hostname' => 'mw-02',
             'status' => StepStatus::Skipped->value,
         ]);
+    }
+
+    #[Test]
+    public function an_unavailable_abort_column_does_not_break_an_ordinary_deployment(): void
+    {
+        // Reproduces a schema that has not picked up the manual-abort columns yet
+        // (e.g. a migration not applied in some environment). The abort check runs
+        // unconditionally at the very first checkpoint of every deployment, so a
+        // failure there — before this hardening — took every deployment down with
+        // it, staging steps included, rather than degrading to "nothing requested".
+        Schema::table('deployments', function (Blueprint $table) {
+            $table->dropColumn('abort_requested_at');
+        });
+
+        $server = DeployTarget::factory()->create();
+        $deployment = $this->deployment(new DeploymentOptions(servers: [$server->hostname]));
+
+        $this->runJob($deployment);
+
+        $this->assertSame(DeploymentStatus::Done, $deployment->fresh()->status);
+        $this->assertGreaterThan(0, $deployment->fresh()->steps()->count());
+        $this->salt->assertRan(StepName::RsyncRemote, $server->hostname);
     }
 
     #[Test]

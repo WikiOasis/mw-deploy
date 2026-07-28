@@ -11,6 +11,8 @@ use App\Events\DeploymentProgressed;
 use App\Models\Deployment;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Replaces the curses Prompter's blocking input().
@@ -121,15 +123,24 @@ class DecisionGate
      */
     public function requestAbort(Deployment $deployment, bool $rollback, ?int $userId): bool
     {
-        $updated = DB::table('deployments')
-            ->where('id', $deployment->getKey())
-            ->where('status', DeploymentStatus::Running->value)
-            ->update([
-                'abort_requested_at' => now(),
-                'abort_requested_by' => $userId,
-                'abort_rollback' => $rollback,
-                'updated_at' => now(),
+        try {
+            $updated = DB::table('deployments')
+                ->where('id', $deployment->getKey())
+                ->where('status', DeploymentStatus::Running->value)
+                ->update([
+                    'abort_requested_at' => now(),
+                    'abort_requested_by' => $userId,
+                    'abort_rollback' => $rollback,
+                    'updated_at' => now(),
+                ]);
+        } catch (Throwable $exception) {
+            Log::warning('mwdeploy: could not record a manual abort request', [
+                'deployment' => $deployment->getKey(),
+                'exception' => $exception,
             ]);
+
+            return false;
+        }
 
         if ($updated > 0) {
             DeploymentProgressed::dispatch($deployment->fresh());
@@ -143,21 +154,42 @@ class DecisionGate
      * database for the same reason poll() does: the runner's in-memory model was
      * loaded before the browser's request landed.
      *
+     * Checked at every checkpoint of every deployment, unlike poll() which only
+     * runs while something has already gone wrong — so a failure here (a
+     * migration not yet applied in this environment, a transient DB error) must
+     * degrade to "nothing requested" rather than crash a deployment that has
+     * nothing to do with aborting. This is the one query on the happy path of
+     * every deployment that this class did not have before; it must not be the
+     * one that takes the whole thing down.
+     *
      * @return bool|null null when nothing has been requested, otherwise whether a
      *                   rollback was asked for alongside the abort
      */
     public function abortRequested(Deployment $deployment): ?bool
     {
-        $row = DB::table('deployments')
-            ->where('id', $deployment->getKey())
-            ->select('abort_requested_at', 'abort_rollback')
-            ->first();
+        // The property access is inside the try along with the query itself: a
+        // schema missing these columns can return a row that simply lacks the
+        // property rather than raising a query exception, and either failure mode
+        // must degrade the same way.
+        try {
+            $row = DB::table('deployments')
+                ->where('id', $deployment->getKey())
+                ->select('abort_requested_at', 'abort_rollback')
+                ->first();
 
-        if ($row === null || $row->abort_requested_at === null) {
+            if ($row === null || $row->abort_requested_at === null) {
+                return null;
+            }
+
+            return (bool) $row->abort_rollback;
+        } catch (Throwable $exception) {
+            Log::warning('mwdeploy: could not check for a manual abort request, assuming none', [
+                'deployment' => $deployment->getKey(),
+                'exception' => $exception,
+            ]);
+
             return null;
         }
-
-        return (bool) $row->abort_rollback;
     }
 
     /**
