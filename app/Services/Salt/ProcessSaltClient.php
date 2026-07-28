@@ -113,8 +113,9 @@ final class ProcessSaltClient implements SaltClient
             );
         }
 
-        $decoded = json_decode(trim($process->getOutput()), true);
-        $envelope = is_array($decoded) ? ($decoded[$jid] ?? null) : null;
+        // jobs.lookup_jid returns the minion-keyed result map directly (the same
+        // shape --out=json gives a synchronous call), not nested under the jid.
+        $envelope = json_decode(trim($process->getOutput()), true);
 
         // No minion has reported back into the job cache yet — jobs.lookup_jid
         // answers an unfinished job with {}, not an error. The caller polls again.
