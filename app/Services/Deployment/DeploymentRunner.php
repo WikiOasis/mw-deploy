@@ -92,6 +92,10 @@ final class DeploymentRunner
             return;
         }
 
+        if ($this->abortedByOperator($deployment)) {
+            return;
+        }
+
         // Record the undo point for every line item, before anything mutates.
         foreach ($refs as $ref) {
             $this->snapshot($deployment, $ref);
@@ -257,6 +261,10 @@ final class DeploymentRunner
         }
 
         foreach ($removals->stagingCalls() as $call) {
+            if ($this->abortedByOperator($deployment)) {
+                return false;
+            }
+
             $step = $this->recorder->begin($call);
             $result = $this->salt->run($call);
             $this->recorder->finish($step, $result);
@@ -287,6 +295,10 @@ final class DeploymentRunner
     private function applyCheckouts(Deployment $deployment, Collection $refs): bool
     {
         foreach ($refs as $ref) {
+            if ($this->abortedByOperator($deployment)) {
+                return false;
+            }
+
             if ($ref->action === RepoAction::Undeploy) {
                 continue;
             }
@@ -362,6 +374,10 @@ final class DeploymentRunner
     private function applyPatches(Deployment $deployment): bool
     {
         foreach ($deployment->deploymentPatches as $deploymentPatch) {
+            if ($this->abortedByOperator($deployment)) {
+                return false;
+            }
+
             /** @var Patch|null $patch */
             $patch = $deploymentPatch->patch;
 
@@ -406,6 +422,10 @@ final class DeploymentRunner
 
     private function runStagingStep(Deployment $deployment, SaltCall $call): bool
     {
+        if ($this->abortedByOperator($deployment)) {
+            return false;
+        }
+
         $step = $this->recorder->begin($call);
         $result = $this->salt->run($call);
         $this->recorder->finish($step, $result);
@@ -432,6 +452,10 @@ final class DeploymentRunner
      */
     private function stagingCanary(Deployment $deployment): bool
     {
+        if ($this->abortedByOperator($deployment)) {
+            return false;
+        }
+
         $call = $this->calls->canary($this->calls->stagingTarget(), host: $this->calls->stagingCanaryHost());
         $step = $this->recorder->begin($call);
         $result = $this->salt->run($call);
@@ -497,9 +521,13 @@ final class DeploymentRunner
         $failed = array_keys(array_filter($results, fn (bool $ok) => ! $ok));
 
         if ($pool->abortRequested()) {
+            $reason = $pool->abortedManually()
+                ? 'aborted by operator during rollout, having already reached: '.implode(', ', array_keys($results))
+                : 'aborted during rollout after a canary failure on: '.implode(', ', $failed);
+
             $this->abort(
                 $deployment,
-                'aborted during rollout after a canary failure on: '.implode(', ', $failed),
+                $reason,
                 rollback: $pool->rollbackRequested(),
                 status: DeploymentStatus::Aborted,
             );
@@ -618,6 +646,25 @@ final class DeploymentRunner
         DeploymentStatus $status = DeploymentStatus::Failed,
     ): void {
         $this->finish($deployment, $status, $reason, autoRollback: $rollback);
+    }
+
+    /**
+     * Checked at every checkpoint between Salt calls: a manual "abort" click
+     * cannot interrupt a call already in flight, but it takes effect at the next
+     * opportunity, the same way a canary-triggered abort already only takes hold
+     * at a generator yield boundary rather than mid-call.
+     */
+    private function abortedByOperator(Deployment $deployment): bool
+    {
+        $rollback = $this->decisions->abortRequested($deployment);
+
+        if ($rollback === null) {
+            return false;
+        }
+
+        $this->abort($deployment, 'aborted by operator', rollback: $rollback, status: DeploymentStatus::Aborted);
+
+        return true;
     }
 
     private function finish(

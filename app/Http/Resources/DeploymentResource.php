@@ -99,7 +99,12 @@ final class DeploymentResource extends JsonResource
             'can' => [
                 'rollback' => $user?->can('rollback', $this->resource) ?? false,
                 'decide' => $user?->can('decide', $this->resource) ?? false,
+                'cancel' => $user?->can('cancel', $this->resource) ?? false,
+                'abort' => $user?->can('abort', $this->resource) ?? false,
             ],
+
+            'abort_requested_at' => $this->abort_requested_at?->toIso8601String(),
+            'abort_requested_by' => $this->whenLoaded('abortRequestedBy', fn () => $this->abortRequestedBy?->name),
         ];
 
         if (! $this->detailed) {

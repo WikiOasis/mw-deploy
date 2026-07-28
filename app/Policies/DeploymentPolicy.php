@@ -87,4 +87,16 @@ final class DeploymentPolicy
         return $deployment->status === DeploymentStatus::Running
             && $user->hasPermission(Permissions::DEPLOY_DECIDE);
     }
+
+    /**
+     * Cancelling a deployment that has not started yet is lower stakes than
+     * aborting one mid-flight — nothing has touched staging — but it is gated on
+     * the same permission rather than opened to anyone who can queue a deploy, so
+     * it stays consistent with the other "control a deployment in flight" actions.
+     */
+    public function cancel(User $user, Deployment $deployment): bool
+    {
+        return $deployment->status === DeploymentStatus::Pending
+            && $user->hasPermission(Permissions::DEPLOY_DECIDE);
+    }
 }

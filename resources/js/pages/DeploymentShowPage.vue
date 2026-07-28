@@ -30,6 +30,8 @@ const loading = ref(true);
 const error = ref(null);
 const busy = ref(false);
 const showRollback = ref(false);
+const showCancel = ref(false);
+const showAbort = ref(false);
 
 const { state, live, finished, start } = useDeploymentState(props.id);
 
@@ -78,6 +80,11 @@ const pendingContext = computed(
 
 const failureReason = computed(() => state.value?.failure_reason ?? deployment.value?.failure_reason);
 
+/** The abort modal reuses the same Abort / Abort-and-rollback copy the blocking
+ *  canary prompt already renders, minus "Continue" — there is nothing to
+ *  continue when nobody has hit a failure yet. */
+const abortOptions = computed(() => (deployment.value?.decisions ?? []).filter((option) => option.value !== 'continue'));
+
 /**
  * Steps come from the live feed when it has them, and from the initial record
  * otherwise — so a finished deployment renders instantly instead of waiting for a
@@ -124,6 +131,36 @@ const rollback = async () => {
         busy.value = false;
     }
 };
+
+const cancel = async () => {
+    busy.value = true;
+
+    try {
+        const payload = await api.post(endpoint(`deployments/${props.id}/cancel`), {});
+
+        flash(payload.message);
+        showCancel.value = false;
+    } catch (thrown) {
+        flashError(thrown);
+    } finally {
+        busy.value = false;
+    }
+};
+
+const abort = async (decision) => {
+    busy.value = true;
+
+    try {
+        const payload = await api.post(endpoint(`deployments/${props.id}/abort`), { decision });
+
+        flash(payload.message);
+        showAbort.value = false;
+    } catch (thrown) {
+        flashError(thrown);
+    } finally {
+        busy.value = false;
+    }
+};
 </script>
 
 <template>
@@ -145,6 +182,24 @@ const rollback = async () => {
                     >
                         Rolls back #{{ deployment.rolls_back_id }}
                     </RouterLink>
+                    <button
+                        v-if="deployment.can.cancel"
+                        type="button"
+                        class="rounded-md px-3 py-1.5 font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                        :disabled="busy"
+                        @click="showCancel = true"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        v-if="deployment.can.abort && !awaitingDecision"
+                        type="button"
+                        class="rounded-md bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-500 disabled:opacity-50"
+                        :disabled="busy"
+                        @click="showAbort = true"
+                    >
+                        Abort
+                    </button>
                     <button
                         v-if="deployment.can.rollback"
                         type="button"
@@ -353,6 +408,69 @@ const rollback = async () => {
                     @click="rollback"
                 >
                     Queue rollback
+                </button>
+            </template>
+        </ModalDialog>
+
+        <ModalDialog
+            v-if="showCancel"
+            title="Cancel this deployment?"
+            subtitle="It has not started, so nothing on staging or any appserver has been touched."
+            @close="showCancel = false"
+        >
+            <p class="text-sm">
+                Deployment #{{ deployment?.id }} will be marked aborted and the queued job will skip it when its
+                turn comes.
+            </p>
+
+            <template #footer>
+                <button
+                    type="button"
+                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    @click="showCancel = false"
+                >
+                    Never mind
+                </button>
+                <button
+                    type="button"
+                    class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    :disabled="busy"
+                    @click="cancel"
+                >
+                    Cancel deployment
+                </button>
+            </template>
+        </ModalDialog>
+
+        <ModalDialog
+            v-if="showAbort"
+            title="Abort this deployment?"
+            subtitle="It stops at its next safe checkpoint — a Salt call already in flight still finishes."
+            danger
+            @close="showAbort = false"
+        >
+            <div class="grid gap-2 sm:grid-cols-2">
+                <button
+                    v-for="option in abortOptions"
+                    :key="option.value"
+                    type="button"
+                    class="rounded-md border px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
+                    :class="option.value === 'abort_and_rollback' ? 'border-rose-300' : 'border-slate-300'"
+                    :disabled="busy"
+                    @click="abort(option.value)"
+                >
+                    <span class="font-medium">{{ option.label }}</span>
+                    <span class="mt-1 block text-xs text-slate-500">{{ option.description }}</span>
+                </button>
+            </div>
+
+            <template #footer>
+                <button
+                    type="button"
+                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    @click="showAbort = false"
+                >
+                    Never mind
                 </button>
             </template>
         </ModalDialog>

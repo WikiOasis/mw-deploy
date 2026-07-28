@@ -58,6 +58,13 @@ const flashClasses = (kind) =>
 
                 <div class="ml-auto flex items-center gap-3 text-sm">
                     <RouterLink
+                        v-if="can('undeploy')"
+                        to="/deployments/undeploy"
+                        class="rounded-md px-3 py-1.5 font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50"
+                    >
+                        Undeploy
+                    </RouterLink>
+                    <RouterLink
                         v-if="can('deploy')"
                         to="/deployments/new"
                         class="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-700"
