@@ -388,6 +388,35 @@ final class TreeImportTest extends TestCase
     }
 
     #[Test]
+    public function an_older_scan_finishing_after_a_newer_one_does_not_clobber_the_shared_cache(): void
+    {
+        $scanner = app(TreeScanner::class);
+        $root = rtrim((string) config('mwdeploy.paths.staging'), '/');
+
+        // Two distinct, single-use responses so each startScan() gets its own —
+        // respondTo() (unlike alwaysRespondTo()) is consumed after firing once.
+        $this->salt->respondTo(StepName::TreeScan, true, payload: [
+            'root' => $root, 'versions' => [], 'entries' => [], 'warnings' => ['scan A'],
+        ]);
+        $this->salt->respondTo(StepName::TreeScan, true, payload: [
+            'root' => $root, 'versions' => [], 'entries' => [], 'warnings' => ['scan B'],
+        ]);
+
+        $scanIdA = $scanner->startScan(fresh: true);
+
+        // A second "Re-scan" supersedes A as the current pointer before A is
+        // ever polled — e.g. A is slow and the operator clicks Re-scan again.
+        $scanIdB = $scanner->startScan(fresh: true);
+
+        // B is polled first and legitimately updates the shared cache.
+        $scanner->pollScan($scanIdB);
+        // A finishes after B but must not overwrite it — A is no longer current.
+        $scanner->pollScan($scanIdA);
+
+        $this->assertSame(['scan B'], $scanner->cached()->warnings);
+    }
+
+    #[Test]
     public function the_api_reports_a_scan_failure_with_a_hint_rather_than_an_empty_plan(): void
     {
         $this->salt->respondTo(StepName::TreeScan, false);

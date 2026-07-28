@@ -73,7 +73,7 @@ final class TreeScanner
      */
     public function startScan(array $versions = [], bool $fresh = false): string
     {
-        $inflightKey = self::ASYNC_CACHE_PREFIX.'inflight:'.md5($this->calls->scanRoot().'|'.implode(',', $versions));
+        $inflightKey = $this->inflightKey($versions);
 
         // Two concurrent cache misses (two operators opening the screen at once,
         // or a page reload racing the first load) would otherwise each start
@@ -185,7 +185,13 @@ final class TreeScanner
 
         $record['scan'] = $scan;
         Cache::put($key, $record, self::CACHE_TTL_SECONDS);
-        Cache::put($this->cacheKey($record['versions']), $scan, self::CACHE_TTL_SECONDS);
+
+        // An older scan finishing after a newer one must not clobber the shared
+        // cache with a stale picture of the tree — only write it while this scan
+        // is still the one startScan() would hand back for this root/versions.
+        if (Cache::get($this->inflightKey($record['versions'])) === $scanId) {
+            Cache::put($this->cacheKey($record['versions']), $scan, self::CACHE_TTL_SECONDS);
+        }
 
         return $scan;
     }
@@ -291,5 +297,17 @@ final class TreeScanner
     private function cacheKey(array $versions = []): string
     {
         return self::CACHE_KEY.':'.md5($this->calls->scanRoot().'|'.implode(',', $versions));
+    }
+
+    /**
+     * Which scan id startScan() would currently hand back for this root/versions
+     * — the single pointer that decides which of possibly several outstanding
+     * scans is allowed to update the shared cache when it finishes.
+     *
+     * @param  list<string>  $versions
+     */
+    private function inflightKey(array $versions = []): string
+    {
+        return self::ASYNC_CACHE_PREFIX.'inflight:'.md5($this->calls->scanRoot().'|'.implode(',', $versions));
     }
 }
