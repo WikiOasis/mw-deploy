@@ -25,7 +25,7 @@
 
         <p class="border-t border-slate-100 pt-4 text-center text-xs text-slate-500">
             Accounts are created by an administrator. There is no self-registration —
-            this portal can push code to every production appserver.
+            this console can push code to every production appserver.
         </p>
     </form>
 </x-layouts.guest>

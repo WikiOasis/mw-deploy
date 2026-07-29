@@ -3,7 +3,7 @@
         @csrf
 
         <p class="text-sm text-slate-600">
-            Confirm your password to continue. This is a sensitive area of the portal.
+            Confirm your password to continue. This is a sensitive area of the console.
         </p>
 
         <x-field label="Password" name="password" required>

@@ -5,12 +5,49 @@ declare(strict_types=1);
 namespace App\Support;
 
 /**
- * The full permission vocabulary. Kept as constants so the seeder, the Gate
- * registration, the policies and the Blade views all agree on the spelling of
- * every permission name.
+ * The full permission vocabulary of the console. Kept as constants so the
+ * seeder, the Gate registration, the policies and the screens all agree on the
+ * spelling of every permission name.
+ *
+ * Permissions are grouped by app. A permission either belongs to one of the
+ * installed apps — in which case holding it also implies access to that app —
+ * or to the console itself, which is where user and access management lives.
+ * The grouping is what the access admin screen renders, and what
+ * `ConsoleApp::permissions()` returns.
  */
 final class Permissions
 {
+    /**
+     * The pseudo-app the console's own permissions belong to: accounts, roles
+     * and the grants themselves. Deliberately not a real app — there is no
+     * console without it, and it is not something to switch off per install.
+     */
+    public const CONSOLE = 'console';
+
+    /*
+     * -----------------------------------------------------------------------
+     * Console: user and access management
+     * -----------------------------------------------------------------------
+     */
+
+    public const USERS_MANAGE = 'users.manage';
+
+    /**
+     * Editing what a role grants, which is how an app's permissions are handed
+     * out. Separate from USERS_MANAGE: putting someone into an existing role is
+     * a smaller act than redefining what that role may do to the fleet.
+     */
+    public const ROLES_MANAGE = 'roles.manage';
+
+    /*
+     * -----------------------------------------------------------------------
+     * Deployments app
+     * -----------------------------------------------------------------------
+     */
+
+    /** Read access to the deployments app, granting nothing inside it. */
+    public const DEPLOYMENTS_ACCESS = 'apps.deployments.access';
+
     public const DEPLOY_CORE = 'deploy.core';
 
     public const DEPLOY_EXTENSION = 'deploy.extension';
@@ -60,16 +97,70 @@ final class Permissions
 
     public const TARGETS_MANAGE = 'targets.manage';
 
-    public const USERS_MANAGE = 'users.manage';
+    /**
+     * Which app owns which permission. Every name in all() appears in exactly
+     * one group; a test asserts it, because a permission belonging to no app is
+     * a permission no screen will ever offer.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function groups(): array
+    {
+        return [
+            self::CONSOLE => [
+                self::USERS_MANAGE,
+                self::ROLES_MANAGE,
+            ],
+            'deployments' => [
+                self::DEPLOYMENTS_ACCESS,
+                self::DEPLOY_CORE,
+                self::DEPLOY_EXTENSION,
+                self::DEPLOY_SKIN,
+                self::DEPLOY_CONFIG,
+                self::DEPLOY_PRODUCTION_SERVERS,
+                self::DEPLOY_FORCE_FLAG,
+                self::DEPLOY_ROLLBACK,
+                self::DEPLOY_DECIDE,
+                self::DEPLOY_POOL,
+                self::DEPLOY_FORCE_FAIL,
+                self::UNDEPLOY_EXTENSION,
+                self::UNDEPLOY_SKIN,
+                self::UNDEPLOY_CONFIG,
+                self::UNDEPLOY_VERSION,
+                self::VERSIONS_MANAGE,
+                self::REPOSITORIES_MANAGE,
+                self::PATCHES_MANAGE,
+                self::TARGETS_MANAGE,
+            ],
+        ];
+    }
 
     /**
-     * name => human description, used by the seeder and the users admin screen.
+     * How an app's access permission is spelled — the one place that knows the
+     * pattern.
+     */
+    public static function accessFor(string $appId): string
+    {
+        return 'apps.'.$appId.'.access';
+    }
+
+    public static function isAccessPermission(string $permission): bool
+    {
+        return str_starts_with($permission, 'apps.') && str_ends_with($permission, '.access');
+    }
+
+    /**
+     * name => human description, used by the seeder and the access admin screen.
      *
      * @return array<string, string>
      */
     public static function all(): array
     {
         return [
+            self::USERS_MANAGE => 'Manage accounts, and which roles each account holds',
+            self::ROLES_MANAGE => 'Create roles and change which app permissions each role grants',
+
+            self::DEPLOYMENTS_ACCESS => 'Open the Deployments app (read-only on its own)',
             self::DEPLOY_CORE => 'Deploy a MediaWiki core version',
             self::DEPLOY_EXTENSION => 'Deploy extensions',
             self::DEPLOY_SKIN => 'Deploy skins',
@@ -90,19 +181,54 @@ final class Permissions
             self::REPOSITORIES_MANAGE => 'Add, edit and register repositories',
             self::PATCHES_MANAGE => 'Add, edit and validate patches',
             self::TARGETS_MANAGE => 'Manage the deploy target inventory',
-            self::USERS_MANAGE => 'Manage users, roles and permission assignments',
         ];
     }
 
     /**
+     * One app's slice of the vocabulary, name => description.
+     *
+     * @return array<string, string>
+     */
+    public static function forApp(string $app): array
+    {
+        $names = self::groups()[$app] ?? [];
+
+        return array_intersect_key(self::all(), array_flip($names));
+    }
+
+    /**
+     * Which app a permission belongs to. Unknown names are treated as the
+     * console's own, so a grant left behind by a removed app is still visible on
+     * the access screen rather than silently invisible.
+     */
+    public static function appFor(string $permission): string
+    {
+        foreach (self::groups() as $app => $names) {
+            if (in_array($permission, $names, true)) {
+                return $app;
+            }
+        }
+
+        return self::CONSOLE;
+    }
+
+    /**
      * Permissions that make an account capable of changing production, and so
-     * require TOTP two-factor. Anything not listed here is effectively read-only.
+     * require TOTP two-factor.
+     *
+     * App access permissions are excluded: on their own they grant reading and
+     * nothing else, and a read-only account is not worth nagging about a
+     * requirement that does not apply to it. Anything not listed here is
+     * effectively read-only.
      *
      * @return list<string>
      */
     public static function requiringTwoFactor(): array
     {
-        return array_keys(self::all());
+        return array_values(array_filter(
+            array_keys(self::all()),
+            fn (string $permission): bool => ! self::isAccessPermission($permission),
+        ));
     }
 
     /**

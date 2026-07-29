@@ -12,7 +12,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ isset($title) ? $title.' — ' : '' }}{{ config('app.name') }}</title>
+    <title>{{ isset($title) ? $title.' — ' : '' }}{{ config('console.name') }}</title>
     @vite(['resources/css/app.css', 'resources/js/auth.js'])
 </head>
 <body class="h-full bg-slate-50 text-slate-900 antialiased">
@@ -20,8 +20,8 @@
     <nav class="border-b border-slate-200 bg-white">
         <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
             <a href="{{ url('/') }}" class="flex items-center gap-2 font-semibold tracking-tight">
-                <span class="inline-flex h-6 w-6 items-center justify-center rounded bg-slate-900 text-xs font-bold text-white">mw</span>
-                Deploy Portal
+                <span class="inline-flex h-6 w-6 items-center justify-center rounded bg-slate-900 text-xs font-bold text-white">wo</span>
+                {{ config('console.name') }}
             </a>
 
             <div class="ml-auto flex items-center gap-3 text-sm">

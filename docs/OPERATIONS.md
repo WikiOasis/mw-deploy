@@ -1,4 +1,4 @@
-# Operating the deploy portal
+# Operating WikiOasis Console
 
 Everything here is about the hosts, not the code. For architecture see the
 [README](../README.md); for the decisions behind these defaults see
@@ -113,7 +113,7 @@ deploys.
 ```ini
 # /etc/systemd/system/mwdeploy-worker.service
 [Unit]
-Description=WikiOasis deploy portal queue worker
+Description=WikiOasis Console queue worker
 After=network.target mysql.service
 
 [Service]
@@ -140,7 +140,7 @@ WantedBy=multi-user.target
 ```ini
 # /etc/systemd/system/mwdeploy-reverb.service
 [Unit]
-Description=WikiOasis deploy portal websocket server
+Description=WikiOasis Console websocket server
 After=network.target
 
 [Service]
@@ -270,8 +270,10 @@ Then in the UI, in this order:
    `scripts/extensions/patches/`, then hit **Dry run** on each. Patches that only
    applied because of GNU patch's default fuzz factor will fail now, which is the
    point.
-6. **Users** — create accounts and assign roles. Anyone with a deploy permission
-   is redirected to `/two-factor/setup` until they enrol TOTP.
+6. **Users and access** (on `/access`, outside the apps) — create accounts and
+   assign roles. A role only puts the Deployments tile on someone's launcher if it
+   holds `apps.deployments.access` or one of the app's own permissions. Anyone with
+   a deploy permission is redirected to `/two-factor/setup` until they enrol TOTP.
 7. A **staging-only** deployment of one small extension, as a smoke test, before
    anything targets production.
 

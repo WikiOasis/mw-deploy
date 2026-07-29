@@ -1,12 +1,18 @@
-# WikiOasis Deploy Portal
+# WikiOasis Console
 
-A Laravel web app that replaces `mwdeploy`, the Python/curses CLI, as the way
-MediaWiki core, extensions, skins and config reach the WikiOasis appserver fleet.
+A Laravel single-page app that hosts WikiOasis's operational tooling as a set of
+**apps**, with one central place for accounts and access. You sign in, you get a
+launcher, and you open what you have been granted.
+
+Today there is one app: **Deployments** — the replacement for `mwdeploy`, the
+Python/curses CLI, as the way MediaWiki core, extensions, skins and config reach
+the WikiOasis appserver fleet.
 
 It runs **on the Salt master** and talks to the fleet **only** through the local
 `salt` binary. There is no SSH transport in this application. `mwdeploy` itself is
 cut down from an orchestrator into `mwdeploy-shim`, a set of atomic,
-single-purpose subcommands the portal invokes one at a time, once per server.
+single-purpose subcommands the deployments app invokes one at a time, once per
+server.
 
 ```
 Browser — Vue 3 single-page app (one shell view, everything else client-routed)
@@ -25,11 +31,46 @@ Laravel (on salt-us-east-021)
 Sign-in, the TOTP challenge and password resets stay **server-rendered**. Fortify
 owns those flows, and an ops tool whose login page depends on a JavaScript bundle
 having loaded is an ops tool you cannot get into on the day the bundle is what
-broke. Everything behind sign-in is the SPA.
+broke. Everything behind sign-in is the SPA: one shell view containing nothing but
+a mount point, and no page loads after it.
+
+## Apps
+
+The console is a shell around a set of apps. An app is a submodule with a boundary
+around it:
+
+* **its own permissions.** Every permission belongs to exactly one app — see
+  `App\Support\Permissions::groups()`. `deploy.core` is the deployments app's;
+  `users.manage` is the console's.
+* **its own access grant.** `apps.<id>.access` opens the app and grants nothing
+  inside it: that is what the `viewer` role holds. Holding any of the app's own
+  permissions also implies access, so granting `deploy.core` is enough on its own.
+* **its own API routes**, in `routes/apps/<id>.php`, loaded inside
+  `app.access:<id>` middleware. An account with no grant in an app cannot reach
+  any of it — not merely the screens the launcher hides.
+* **its own screens**, under `resources/js/apps/<id>/`, mounted at its own path
+  prefix, contributing their own nav and chrome buttons through a manifest.
+
+```
+/                       the launcher — the apps this account may open
+/access                 accounts, roles, and which app permissions each role grants
+/deployments            the deployments app (overview, history, wizard, registry…)
+```
+
+Installing an app is one line in `config/console.php`. Nothing else knows the
+list: the launcher, the nav, the API route table and the permission admin are all
+built from the registry (`App\Apps\AppRegistry`) and its client-side mirror
+(`resources/js/apps/index.js`). `CONSOLE_DISABLED_APPS` switches one off for an
+install — it vanishes from the launcher and its API answers 404.
+
+Access is granted centrally, on `/access`: accounts hold roles, roles hold
+permissions, and ticking an app's access permission is what puts its tile on its
+members' launcher. After adding an app, re-run `php artisan db:seed --force` —
+that is how new permissions reach the existing roles.
 
 ## What is new relative to `mwdeploy`
 
-| Capability | `mwdeploy` | Portal |
+| Capability | `mwdeploy` | Deployments app |
 |---|---|---|
 | Pick a branch **or commit** per repo | no — always `fetch && reset --hard FETCH_HEAD` | yes, per checkout |
 | Deploy to one version / several / all | no notion of versions at all | yes; each version keeps its own pinned ref |
@@ -37,7 +78,7 @@ broke. Everything behind sign-in is the SPA.
 | **Undeploy** an extension, skin or version | no concept of it | yes, per version, behind its own permissions |
 | Deploy history | last run only, in `/var/log/mwdeploy-state.json` | every run, queryable |
 | Rollback | no concept of it | yes — and it reverses removals as well as ref changes |
-| Users and permissions | whoever is on the Salt master shell | accounts, roles, 18 permissions, enforced TOTP |
+| Users and permissions | whoever is on the Salt master shell | accounts, roles, 21 permissions across the console and its apps, enforced TOTP |
 | Patch consistency | `--patch`/`--patch-target` retyped each time | registry; target path stored on the patch |
 | Repo registration | by hand on disk | form, with a reachability check, then a reviewable clone |
 | Adopting an existing farm | n/a — the CLI *was* the farm's history | `tree-scan` reads the tree and fills the registry in from it |
@@ -68,13 +109,13 @@ and has one unversioned checkout.
 
 ## Adopting a farm that already exists
 
-The portal is not usually installed onto an empty disk. A farm that has been
+The deployments app is not usually installed onto an empty disk. A farm that has been
 running for years already has `versions/1.45/extensions/…` checked out, on refs
 somebody chose, from remotes somebody picked — and asking an operator to retype a
 hundred extensions into a form to describe code that is already there is not a
 migration path.
 
-So the portal reads the tree instead. `mwdeploy-shim tree-scan` walks the deploy
+So it reads the tree instead. `mwdeploy-shim tree-scan` walks the deploy
 root and reports what it finds:
 
 ```
@@ -164,6 +205,8 @@ and every removal is reversible — see below.
 
 ```
 app/
+  Apps/                    the app registry: ConsoleApp, BaseApp, AppRegistry
+  Apps/Deployments/        the deployments app's definition (id, path, routes)
   Actions/Deployments/     CreateDeployment, RollbackDeployment
   Actions/Import/          ApplyImport — the only writer of "already deployed" rows
   Actions/Repositories/    RegisterRepository, RegisterCheckout, RegisterConfigRepository
@@ -171,7 +214,7 @@ app/
   Enums/                   statuses, step names, ref types, decisions
   Http/Controllers/Api/    the JSON API the SPA talks to; one controller per screen
   Http/Resources/          payload shapes, so a field is named once
-  Http/                    form requests, RequireTwoFactor, the SPA shell controller
+  Http/                    form requests, RequireTwoFactor, EnsureAppAccess, the shell
   Jobs/RunDeployment.php   the queued job; unique per staging tree
   Policies/                who may deploy, roll back, decide, manage
   Services/Deployment/     the orchestrator — runner, rollout pool, decision gate
@@ -180,20 +223,23 @@ app/
   Services/Salt/           the only code that touches the fleet
   Support/                 DeploymentOptions, PathResolver, Permissions
 resources/js/
-  app.js, router.js        the SPA entry point and its routes
-  api.js, store.js, live.js  fetch wrapper, session/flash state, Echo + polling
-  components/              shell, panels, the checkout picker, the plan review
-  pages/                   one component per screen
+  app.js, router.js        the SPA entry point; console routes + each app's
+  api.js, store.js, live.js  fetch wrapper, session/app/flash state, Echo + polling
+  components/              the shared component library: panels, fields, combobox
+  console/                 the chrome, the launcher, the access screen
+  apps/index.js            the client-side app registry, mirroring config/console.php
+  apps/deployments/        that app's manifest, screens and own components
   auth.js                  a few kB for the server-rendered sign-in pages
 routes/
   web.php                  the SPA shell and TOTP enrolment
-  api.php                  everything else
+  api.php                  the console's API, plus one guarded group per app
+  apps/deployments.php     the deployments app's own endpoints
 shim/
   mwdeploy_shim.py         install as /usr/local/bin/mwdeploy-shim on every minion
   tests/                   python unittest suite for the shim
 docs/
   OPEN-QUESTIONS.md        section 7 of the handoff spec, answered
-  OPERATIONS.md            installing and running the portal
+  OPERATIONS.md            installing and running the console
   SALT-INTEGRATION.md      handoff for wiring this into the SaltStack repo
 ```
 
@@ -236,7 +282,7 @@ php artisan mwdeploy:import-tree                  # what it found, and what it w
 php artisan mwdeploy:import-tree --apply --as=you@wikioasis.org
 ```
 
-Then, still in `.env`, point the portal at the fleet:
+Then, still in `.env`, point the deployments app at the fleet:
 
 ```dotenv
 MWDEPLOY_STAGING_TARGET=staging               # Salt minion id of the staging host
@@ -351,12 +397,12 @@ skip its own canary.
 
 ## Out of scope for v1
 
-Salt orchestrate/reactor rollouts (the portal does the sequencing); rolling back
+Salt orchestrate/reactor rollouts (the app does the sequencing); rolling back
 schema migrations or R2 content (rollback is git refs and presence only — if a
 deploy included a migration, a human still has to deal with the schema); owning the
-wiki → version mapping (that lives in mw-config; the portal only reads it to refuse
+wiki → version mapping (that lives in mw-config; the app only reads it to refuse
 an unsafe version removal); and CI-triggered deploys. This is a manual-trigger
-portal replacing a manual-trigger CLI.
+console app replacing a manual-trigger CLI.
 
 Two more that the adoption path invites and does not do. It never **writes** to the
 tree to reconcile it — an import that noticed drift will tell you, and moving the

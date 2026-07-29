@@ -85,6 +85,7 @@ final class ApiSmokeTest extends TestCase
     {
         return [
             'bootstrap' => ['api.bootstrap'],
+            'apps' => ['api.apps.index'],
             'dashboard' => ['api.dashboard'],
             'versions' => ['api.versions.index'],
             'repositories' => ['api.repositories.index'],
@@ -94,6 +95,7 @@ final class ApiSmokeTest extends TestCase
             'patches' => ['api.patches.index'],
             'targets' => ['api.targets.index'],
             'users' => ['api.users.index'],
+            'repository scoping' => ['api.repository-scope.index'],
         ];
     }
 
@@ -107,20 +109,39 @@ final class ApiSmokeTest extends TestCase
     #[Test]
     public function the_spa_shell_renders_with_the_bootstrap_payload_inlined(): void
     {
-        // The first paint has to know who is signed in and what they may do, or the
-        // chrome renders and then changes shape once permissions arrive.
+        // The first paint has to know who is signed in, which apps they may open
+        // and what they may do, or the launcher renders empty and then grows tiles.
         $response = $this->actingAs($this->admin)->get('/');
 
         $response->assertOk();
         $response->assertSee('id="app"', escape: false);
-        $response->assertSee('mwdeploy-bootstrap', escape: false);
+        $response->assertSee('console-bootstrap', escape: false);
         $response->assertSee($this->admin->email);
+        $response->assertSee('Deployments');
     }
 
     #[Test]
     public function the_shell_is_served_for_every_client_side_route(): void
     {
-        $paths = ['/', '/deployments', '/deployments/new', '/versions', '/repositories', '/import', '/patches'];
+        /*
+         * One shell for the launcher, the console's own screens, every path inside
+         * an app, and the pre-console URLs the client redirects — all of them are
+         * real URLs someone can reload or bookmark.
+         */
+        $paths = [
+            '/',
+            '/access',
+            '/deployments',
+            '/deployments/history',
+            '/deployments/new',
+            '/deployments/versions',
+            '/deployments/repositories',
+            '/deployments/import',
+            '/deployments/patches',
+            '/versions',
+            '/repositories',
+            '/users',
+        ];
 
         foreach ($paths as $path) {
             $this->actingAs($this->admin)->get($path)->assertOk()->assertSee('id="app"', escape: false);
@@ -149,6 +170,10 @@ final class ApiSmokeTest extends TestCase
             ->assertJsonPath('authenticated', true)
             ->assertJsonPath('can.manage_repositories', true)
             ->assertJsonPath('can.undeploy_version', true)
+            // The launcher, inlined: the console's app list is part of knowing who
+            // you are, not a second round trip.
+            ->assertJsonPath('apps.0.id', 'deployments')
+            ->assertJsonPath('apps.0.accessible', true)
             ->assertJsonPath('settings.staging_host', (string) config('mwdeploy.targets.staging'))
             ->assertJsonPath('settings.config_dir', (string) config('mwdeploy.paths.config_dir'))
             ->assertJsonPath('counts.versions', 2);

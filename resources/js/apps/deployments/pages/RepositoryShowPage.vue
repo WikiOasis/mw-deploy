@@ -2,13 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import LoadState from '../components/LoadState.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import LoadState from '../../../components/LoadState.vue';
 import RepoFileBrowser from '../components/RepoFileBrowser.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { relative, shortRef } from '../format';
-import { flash, flashError } from '../store';
+import { relative, shortRef } from '../../../format';
+import { flash, flashError } from '../../../store';
 
 /**
  * One repository: its checkouts across versions, what the tree says about them, and
@@ -66,7 +66,7 @@ const deactivate = async () => {
         const payload = await api.delete(endpoint(`repositories/${props.id}`));
 
         flash(payload.message);
-        router.push('/repositories');
+        router.push('/deployments/repositories');
     } catch (thrown) {
         flashError(thrown);
     } finally {
@@ -79,7 +79,7 @@ const deactivate = async () => {
     <LoadState :loading="loading" :error="error" @retry="load">
         <div v-if="repository" class="space-y-6">
             <header class="flex flex-wrap items-center gap-3">
-                <RouterLink to="/repositories" class="text-sm text-slate-500 underline">Repositories</RouterLink>
+                <RouterLink to="/deployments/repositories" class="text-sm text-slate-500 underline">Repositories</RouterLink>
                 <h1 class="text-lg font-semibold tracking-tight">{{ repository.name }}</h1>
                 <span class="rounded bg-slate-100 px-2 py-0.5 text-xs">{{ repository.type_label }}</span>
                 <span v-if="repository.imported" class="rounded bg-slate-100 px-2 py-0.5 text-xs">
@@ -87,7 +87,7 @@ const deactivate = async () => {
                 </span>
 
                 <div v-if="repository.can.manage" class="ml-auto flex items-center gap-3 text-sm">
-                    <RouterLink :to="`/repositories/${repository.id}/edit`" class="text-slate-600 underline">
+                    <RouterLink :to="`/deployments/repositories/${repository.id}/edit`" class="text-slate-600 underline">
                         Edit
                     </RouterLink>
                     <button

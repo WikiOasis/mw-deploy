@@ -2,11 +2,11 @@
 import { onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import LoadState from '../components/LoadState.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import LoadState from '../../../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { duration, relative } from '../format';
+import { duration, relative } from '../../../format';
 
 /**
  * Deploy history — the thing the old CLI's single-run JSON state file could never

@@ -3,8 +3,9 @@ import { computed, reactive, readonly } from 'vue';
 import { api, endpoint } from './api';
 
 /**
- * Application state that outlives a single page: who is signed in, what they may
- * do, the deploy-wide settings, and the flash messages.
+ * Console state that outlives a single page: who is signed in, which apps they
+ * may open, what they may do inside them, the deploy-wide settings, and the
+ * flash messages.
  *
  * Small enough not to want a state library. Permissions are the only thing read
  * from more than a couple of places, and they never change within a session.
@@ -12,6 +13,9 @@ import { api, endpoint } from './api';
 const state = reactive({
     authenticated: false,
     user: null,
+    // Every app this install has switched on, each with an `accessible` flag —
+    // the server's answer, never inferred from the permission list here.
+    apps: [],
     can: {},
     settings: {},
     reference: { repository_types: [], target_roles: [], permissions: {} },
@@ -28,7 +32,7 @@ export const session = readonly(state);
  * permissions rather than an empty chrome.
  */
 export function hydrate() {
-    const element = document.getElementById('mwdeploy-bootstrap');
+    const element = document.getElementById('console-bootstrap');
 
     if (element === null) {
         return;
@@ -50,6 +54,7 @@ function apply(payload) {
     Object.assign(state, {
         authenticated: payload?.authenticated ?? false,
         user: payload?.user ?? null,
+        apps: payload?.apps ?? [],
         can: payload?.can ?? {},
         settings: payload?.settings ?? {},
         reference: payload?.reference ?? state.reference,
@@ -60,6 +65,23 @@ function apply(payload) {
 export const can = (ability) => state.can[ability] === true;
 
 export const hasPermission = (permission) => (state.user?.permissions ?? []).includes(permission);
+
+/** The console's name, as configured on the server. */
+export const consoleName = computed(() => state.settings.console_name || state.settings.app_name || 'Console');
+
+/** Every installed app, openable or not — the launcher shows both. */
+export const apps = computed(() => state.apps);
+
+/** The apps on this account's launcher. */
+export const availableApps = computed(() => state.apps.filter((entry) => entry.accessible));
+
+export const appById = (id) => state.apps.find((entry) => entry.id === id) ?? null;
+
+/**
+ * Whether this account may open an app. The server decided; this only reads the
+ * answer, so a client-side bug cannot widen access.
+ */
+export const canUseApp = (id) => appById(id)?.accessible === true;
 
 /**
  * True on a fresh install: nothing registered yet. The UI points at the import

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Apps\AppRegistry;
 use App\Enums\RepositoryType;
 use App\Enums\TargetRole;
 use App\Http\Controllers\Controller;
@@ -19,15 +20,17 @@ use Illuminate\Http\Request;
 
 /**
  * Everything the single-page app needs before it renders anything: who is signed
- * in, what they may do, and the handful of deployment-wide settings the UI has to
- * agree with the server about (parallelism ceiling, staging host, whether ref
- * discovery works).
+ * in, which apps they may open, what they may do inside them, and the handful of
+ * deployment-wide settings the UI has to agree with the server about (parallelism
+ * ceiling, staging host, whether ref discovery works).
  *
- * Served as one request, and also inlined into the app shell so a cold load does
- * not paint an empty chrome while it waits for permissions to arrive.
+ * Served as one request, and also inlined into the console shell so a cold load
+ * does not paint an empty launcher while it waits for permissions to arrive.
  */
 final class BootstrapController extends Controller
 {
+    public function __construct(private readonly AppRegistry $registry) {}
+
     public function __invoke(Request $request): JsonResponse
     {
         return response()->json($this->payload($request->user()));
@@ -44,6 +47,13 @@ final class BootstrapController extends Controller
 
         return [
             'authenticated' => true,
+            /*
+             * The launcher, inlined. Every enabled app, each flagged with whether
+             * this account may open it — a locked tile is how someone finds out
+             * what to ask for, and hiding it would only produce a support ticket
+             * that starts "I can't see anything".
+             */
+            'apps' => $this->registry->launcherFor($user),
             'user' => [
                 'id' => $user->getKey(),
                 'name' => $user->name,
@@ -65,9 +75,11 @@ final class BootstrapController extends Controller
                 'manage_patches' => $user->hasPermission(Permissions::PATCHES_MANAGE),
                 'manage_targets' => $user->hasPermission(Permissions::TARGETS_MANAGE),
                 'manage_users' => $user->hasPermission(Permissions::USERS_MANAGE),
+                'manage_roles' => $user->hasPermission(Permissions::ROLES_MANAGE),
                 'undeploy_version' => $user->hasPermission(Permissions::UNDEPLOY_VERSION),
             ],
             'settings' => [
+                'console_name' => (string) config('console.name'),
                 'app_name' => (string) config('app.name'),
                 'staging_host' => (string) config('mwdeploy.targets.staging'),
                 'staging_path' => (string) config('mwdeploy.paths.staging'),
@@ -102,7 +114,7 @@ final class BootstrapController extends Controller
                 ),
                 'permissions' => Permissions::all(),
             ],
-            // Counts, so the nav can show whether the portal has been set up at
+            // Counts, so the deployments app can show whether it has been set up at
             // all. An empty registry is the normal state of a fresh install, and
             // the SPA points at the import screen when it sees one.
             'counts' => [

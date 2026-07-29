@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureAppAccess;
 use App\Http\Middleware\RequireTwoFactor;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -33,6 +34,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'two-factor' => RequireTwoFactor::class,
+            // Applied to each app's own route group by routes/api.php: an
+            // account with no grant inside an app cannot reach any of it.
+            'app.access' => EnsureAppAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

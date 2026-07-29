@@ -146,7 +146,7 @@ const toggleServer = (hostname) => {
                 <span class="font-medium text-rose-900">Force — ignore canary failures</span>
                 <span class="block text-xs text-rose-800">
                     The deployment will not stop or prompt when a canary check fails, and no automatic
-                    rollback will be enqueued. This is the most dangerous option in the portal.
+                    rollback will be enqueued. This is the most dangerous option in this app.
                 </span>
             </span>
         </label>

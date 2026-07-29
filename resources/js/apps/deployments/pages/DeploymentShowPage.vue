@@ -2,15 +2,15 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import LoadState from '../components/LoadState.vue';
-import ModalDialog from '../components/ModalDialog.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import LoadState from '../../../components/LoadState.vue';
+import ModalDialog from '../../../components/ModalDialog.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import StepList from '../components/StepList.vue';
-import { dateTime, duration } from '../format';
-import { useDeploymentState } from '../live';
-import { flash, flashError } from '../store';
+import { dateTime, duration } from '../../../format';
+import { useDeploymentState } from '../../../live';
+import { flash, flashError } from '../../../store';
 
 /**
  * One deployment, live.
@@ -516,7 +516,7 @@ const forceFail = async () => {
             </p>
             <p class="mt-2 text-sm text-rose-700">
                 If a worker is in fact still processing this deployment, forcing it here will not stop that work —
-                it will just make the portal's record of it wrong. Confirm the worker is actually gone first.
+                it will just make this app's record of it wrong. Confirm the worker is actually gone first.
             </p>
 
             <template #footer>

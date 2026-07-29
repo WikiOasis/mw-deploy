@@ -2,13 +2,13 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import LoadState from '../components/LoadState.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import LoadState from '../../../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { shortRef } from '../format';
-import { usePolling } from '../live';
-import { flash, flashError, refreshSession, session } from '../store';
+import { shortRef } from '../../../format';
+import { usePolling } from '../../../live';
+import { flash, flashError, refreshSession, session } from '../../../store';
 
 /**
  * Adopting a MediaWiki farm the portal did not build.
@@ -442,7 +442,7 @@ const apply = async () => {
 
                 <p class="text-xs text-slate-500">
                     Config lives outside the version trees. If the tree has one and it is not registered yet, the
-                    <RouterLink to="/repositories/config" class="underline">config repository screen</RouterLink>
+                    <RouterLink to="/deployments/repositories/config" class="underline">config repository screen</RouterLink>
                     will adopt it in one step.
                 </p>
             </div>

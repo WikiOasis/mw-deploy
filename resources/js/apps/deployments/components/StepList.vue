@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 
-import { duration } from '../format';
+import { duration } from '../../../format';
 import StatusBadge from './StatusBadge.vue';
 
 /**

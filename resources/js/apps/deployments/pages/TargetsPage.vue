@@ -1,12 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import FormField from '../components/FormField.vue';
-import LoadState from '../components/LoadState.vue';
-import ModalDialog from '../components/ModalDialog.vue';
-import { flash, flashError } from '../store';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import FormField from '../../../components/FormField.vue';
+import LoadState from '../../../components/LoadState.vue';
+import ModalDialog from '../../../components/ModalDialog.vue';
+import { flash, flashError } from '../../../store';
 
 /**
  * The deploy target inventory, plus manual depool/repool.
