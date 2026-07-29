@@ -4,28 +4,31 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Apps\AppRegistry;
+use App\Apps\ConsoleApp;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
-use App\Models\Permission;
-use App\Models\Repository;
-use App\Models\RepositoryPermission;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\Permissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
-use Illuminate\Validation\ValidationException;
 
 /**
- * Account and role administration. There is no self-registration: this portal can
- * push code to every production appserver, so accounts are created by someone
- * holding users.manage.
+ * The console's central access management: accounts, roles, and which of each
+ * app's permissions a role grants.
+ *
+ * This is the one screen that is not an app — it is how apps are handed out, so
+ * it cannot itself be behind an app grant. There is no self-registration: this
+ * console can push code to every production appserver, so accounts are created
+ * by someone holding users.manage.
  */
 final class UserController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(AppRegistry $registry): JsonResponse
     {
         $this->authorize('viewAny', User::class);
 
@@ -39,34 +42,26 @@ final class UserController extends Controller
                     'name' => $role->name,
                     'description' => $role->description,
                     'permissions' => $role->permissions->pluck('name')->values()->all(),
+                    // Which apps this role opens, so the screen can say what a
+                    // role is *for* before anyone reads its permission list.
+                    'apps' => array_values(array_map(
+                        fn (ConsoleApp $app): string => $app->id(),
+                        array_filter(
+                            $registry->enabled(),
+                            fn (ConsoleApp $app): bool => array_intersect(
+                                array_keys($app->permissions()),
+                                $role->permissions->pluck('name')->all(),
+                            ) !== [],
+                        ),
+                    )),
                 ])->all(),
-            'permissions' => Permission::query()->orderBy('name')->get()
-                ->map(fn (Permission $permission): array => [
-                    'id' => $permission->getKey(),
-                    'name' => $permission->name,
-                    'description' => $permission->description,
-                ])->all(),
-            'repositories' => Repository::query()->active()->orderBy('type')->orderBy('name')->get()
-                ->map(fn (Repository $repository): array => [
-                    'id' => $repository->getKey(),
-                    'name' => $repository->name,
-                    'type' => $repository->type->value,
-                ])->all(),
-            // A repository with no rows here is governed purely by its coarse
-            // deploy.<type> permission; adding the first row narrows it to the
-            // listed users and roles.
-            'repository_permissions' => RepositoryPermission::query()
-                ->with(['repository', 'user', 'role'])
-                ->get()
-                ->map(fn (RepositoryPermission $scope): array => [
-                    'id' => $scope->getKey(),
-                    'repository_id' => $scope->repository_id,
-                    'repository_name' => $scope->repository?->name,
-                    'user_id' => $scope->user_id,
-                    'user_name' => $scope->user?->name,
-                    'role_id' => $scope->role_id,
-                    'role_name' => $scope->role?->name,
-                ])->all(),
+            /*
+             * The permission vocabulary, grouped the way it is granted: one
+             * section per app, plus the console's own. Each section is complete
+             * whether or not the seeder has been re-run, because it comes from
+             * the code rather than from the permissions table.
+             */
+            'permission_groups' => $this->permissionGroups($registry),
         ]);
     }
 
@@ -116,37 +111,40 @@ final class UserController extends Controller
         ]);
     }
 
-    public function scopeRepository(Request $request): JsonResponse
+    /**
+     * One section per app, in launcher order, with the console's own permissions
+     * first — they are the ones that hand the apps out.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function permissionGroups(AppRegistry $registry): array
     {
-        $this->authorize('viewAny', User::class);
+        $section = static fn (string $key, string $label, string $summary, array $permissions): array => [
+            'key' => $key,
+            'label' => $label,
+            'summary' => $summary,
+            'permissions' => array_map(
+                static fn (string $name, string $description): array => [
+                    'name' => $name,
+                    'description' => $description,
+                    'grants_access' => Permissions::isAccessPermission($name),
+                ],
+                array_keys($permissions),
+                array_values($permissions),
+            ),
+        ];
 
-        $validated = $request->validate([
-            'repository_id' => ['required', 'integer', Rule::exists('repositories', 'id')],
-            'user_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
-            'role_id' => ['nullable', 'integer', Rule::exists('roles', 'id')],
-        ]);
+        $groups = [$section(
+            Permissions::CONSOLE,
+            'Console',
+            'Accounts, roles and the grants themselves. Not an app: this is how the apps are handed out.',
+            Permissions::forApp(Permissions::CONSOLE),
+        )];
 
-        if (($validated['user_id'] ?? null) === null && ($validated['role_id'] ?? null) === null) {
-            throw ValidationException::withMessages([
-                'user_id' => 'Choose a user or a role to scope this repository to.',
-            ]);
+        foreach ($registry->enabled() as $app) {
+            $groups[] = $section($app->id(), $app->name(), $app->summary(), $app->permissions());
         }
 
-        RepositoryPermission::query()->updateOrCreate([
-            'repository_id' => $validated['repository_id'],
-            'user_id' => $validated['user_id'] ?? null,
-            'role_id' => $validated['role_id'] ?? null,
-        ]);
-
-        return response()->json(['message' => 'Repository scoping updated.']);
-    }
-
-    public function unscopeRepository(RepositoryPermission $repositoryPermission): JsonResponse
-    {
-        $this->authorize('viewAny', User::class);
-
-        $repositoryPermission->delete();
-
-        return response()->json(['message' => 'Repository scoping removed.']);
+        return $groups;
     }
 }

@@ -5,7 +5,7 @@
                 <p class="font-medium">Two-factor authentication is required for this account.</p>
                 <p class="mt-1">
                     Your roles let you change production, so a password on its own is not enough. Enrol below to
-                    continue using the portal.
+                    continue using the console.
                 </p>
                 @if ($reasons !== [])
                     <ul class="mt-2 list-disc space-y-0.5 pl-5 text-xs">

@@ -2,14 +2,14 @@
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import LoadState from '../components/LoadState.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import LoadState from '../../../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import StepList from '../components/StepList.vue';
-import { duration, relative } from '../format';
-import { usePolling } from '../live';
-import { can, session } from '../store';
+import { duration, relative } from '../../../format';
+import { usePolling } from '../../../live';
+import { can, session } from '../../../store';
 
 /**
  * What is running now, what ran recently, and whether the registry actually
@@ -84,7 +84,7 @@ onMounted(start);
                 </div>
             </section>
 
-            <!-- A farm with no config repository registered is a farm the portal
+            <!-- A farm with no config repository registered is a farm this app
                  cannot deploy wiki config for, which is worth saying once rather
                  than leaving to be discovered in the wizard. -->
             <div
@@ -95,7 +95,7 @@ onMounted(start);
                 <p class="mt-1 text-xs">
                     Wiki config lives outside the version trees, at
                     <code class="font-mono">{{ session.settings.config_dir }}</code>.
-                    <RouterLink to="/repositories/config" class="font-medium underline">Add it</RouterLink> —
+                    <RouterLink to="/deployments/repositories/config" class="font-medium underline">Add it</RouterLink> —
                     it takes the git URL and nothing else.
                 </p>
             </div>
@@ -147,7 +147,7 @@ onMounted(start);
 
             <CardPanel title="Recent deployments" flush>
                 <template #actions>
-                    <RouterLink to="/deployments" class="text-slate-600 underline hover:text-slate-900">
+                    <RouterLink to="/deployments/history" class="text-slate-600 underline hover:text-slate-900">
                         Full history
                     </RouterLink>
                 </template>

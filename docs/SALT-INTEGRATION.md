@@ -1,4 +1,4 @@
-# Integrating the deploy portal into the SaltStack repository
+# Integrating WikiOasis Console into the SaltStack repository
 
 **Audience:** an agent (or engineer) with write access to the WikiOasis SaltStack
 repository and knowledge of its layout. You are adding Salt states that deploy and
@@ -301,7 +301,7 @@ the values you must **change** from the shipped defaults, and why.
 
 | Variable | Value | Notes |
 |---|---|---|
-| `APP_NAME` | `"WikiOasis Deploy Portal"` | shown in the browser tab |
+| `APP_NAME` | `"WikiOasis Console"` | shown in the browser tab; `CONSOLE_NAME` overrides it in the chrome |
 | `APP_ENV` | `production` | |
 | `APP_DEBUG` | `false` | **critical** — a debug stack trace on this app leaks `.env`, including the DB password |
 | `APP_URL` | `https://deploy.wikioasis.org` | must match the real scheme+host or generated links break behind the proxy |

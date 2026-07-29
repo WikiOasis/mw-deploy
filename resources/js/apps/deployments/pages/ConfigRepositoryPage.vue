@@ -2,13 +2,13 @@
 import { onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import FormField from '../components/FormField.vue';
-import LoadState from '../components/LoadState.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import FormField from '../../../components/FormField.vue';
+import LoadState from '../../../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { shortRef } from '../format';
-import { flash, flashError, refreshSession, session } from '../store';
+import { shortRef } from '../../../format';
+import { flash, flashError, refreshSession, session } from '../../../store';
 
 /**
  * Registering the config repository, in one field.
@@ -71,7 +71,7 @@ const submit = async () => {
         if (payload.deployment_id) {
             router.push(`/deployments/${payload.deployment_id}`);
         } else {
-            router.push(`/repositories/${payload.repository.id}`);
+            router.push(`/deployments/repositories/${payload.repository.id}`);
         }
     } catch (thrown) {
         if (thrown instanceof ApiError && thrown.isValidation) {
@@ -100,7 +100,7 @@ const submit = async () => {
                 <CardPanel :title="data.repository ? 'Registered' : 'Not registered yet'">
                     <div v-if="data.repository" class="space-y-3 text-sm">
                         <div class="flex flex-wrap items-center gap-2">
-                            <RouterLink :to="`/repositories/${data.repository.id}`" class="font-medium underline">
+                            <RouterLink :to="`/deployments/repositories/${data.repository.id}`" class="font-medium underline">
                                 {{ data.repository.name }}
                             </RouterLink>
                             <span v-if="data.repository.imported" class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">
@@ -131,7 +131,7 @@ const submit = async () => {
                     </div>
 
                     <p v-else class="text-sm text-slate-500">
-                        Nothing of type <code class="font-mono">config</code> is registered, so the portal cannot
+                        Nothing of type <code class="font-mono">config</code> is registered, so this app cannot
                         deploy wiki config yet.
                     </p>
                 </CardPanel>

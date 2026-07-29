@@ -2,11 +2,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import FormField from '../components/FormField.vue';
-import LoadState from '../components/LoadState.vue';
-import { flash, flashError, refreshSession, session } from '../store';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import FormField from '../../../components/FormField.vue';
+import LoadState from '../../../components/LoadState.vue';
+import { flash, flashError, refreshSession, session } from '../../../store';
 
 /**
  * Register a repository, or edit one.
@@ -120,7 +120,7 @@ const submit = async () => {
             const result = await api.put(endpoint(`repositories/${props.id}`), payload);
 
             flash(result.message);
-            router.push(`/repositories/${props.id}`);
+            router.push(`/deployments/repositories/${props.id}`);
 
             return;
         }
@@ -131,7 +131,7 @@ const submit = async () => {
         await refreshSession();
 
         router.push(
-            result.deployment_id ? `/deployments/${result.deployment_id}` : `/repositories/${result.repository.id}`,
+            result.deployment_id ? `/deployments/${result.deployment_id}` : `/deployments/repositories/${result.repository.id}`,
         );
     } catch (thrown) {
         if (thrown instanceof ApiError && thrown.isValidation) {
@@ -148,7 +148,7 @@ const submit = async () => {
 <template>
     <div class="space-y-4">
         <header class="flex flex-wrap items-baseline gap-3">
-            <RouterLink to="/repositories" class="text-sm text-slate-500 underline">Repositories</RouterLink>
+            <RouterLink to="/deployments/repositories" class="text-sm text-slate-500 underline">Repositories</RouterLink>
             <h1 class="text-lg font-semibold tracking-tight">
                 {{ isEdit ? `Edit ${existing?.name ?? ''}` : 'Register a repository' }}
             </h1>
@@ -294,7 +294,7 @@ const submit = async () => {
                     <ul class="space-y-2 text-xs text-slate-600">
                         <li v-if="form.type === 'config'">
                             For the config repository there is a
-                            <RouterLink to="/repositories/config" class="underline">one-field screen</RouterLink>
+                            <RouterLink to="/deployments/repositories/config" class="underline">one-field screen</RouterLink>
                             that also adopts an existing <code class="font-mono">{{ session.settings.config_dir }}</code>
                             checkout instead of cloning over it.
                         </li>
@@ -303,7 +303,7 @@ const submit = async () => {
                             not from this form.
                         </li>
                         <li>
-                            Already on disk? <RouterLink to="/import" class="underline">Import from disk</RouterLink>
+                            Already on disk? <RouterLink to="/deployments/import" class="underline">Import from disk</RouterLink>
                             adopts what is there instead of cloning it again.
                         </li>
                         <li v-if="isEdit">

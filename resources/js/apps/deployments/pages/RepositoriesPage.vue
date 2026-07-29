@@ -2,12 +2,12 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import LoadState from '../components/LoadState.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import LoadState from '../../../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { shortRef } from '../format';
-import { can, session } from '../store';
+import { shortRef } from '../../../format';
+import { can, session } from '../../../store';
 
 /**
  * The repository registry. Read-only for anyone with an account; the manage links
@@ -70,15 +70,15 @@ const types = computed(() => session.reference.repository_types ?? []);
             <h1 class="text-lg font-semibold tracking-tight">Repositories</h1>
 
             <div class="ml-auto flex items-center gap-2 text-sm">
-                <RouterLink to="/repositories/config" class="text-slate-600 underline hover:text-slate-900">
+                <RouterLink to="/deployments/repositories/config" class="text-slate-600 underline hover:text-slate-900">
                     Config repository
                 </RouterLink>
-                <RouterLink v-if="can('manage_repositories')" to="/import" class="text-slate-600 underline hover:text-slate-900">
+                <RouterLink v-if="can('manage_repositories')" to="/deployments/import" class="text-slate-600 underline hover:text-slate-900">
                     Import from disk
                 </RouterLink>
                 <RouterLink
                     v-if="can('manage_repositories')"
-                    to="/repositories/new"
+                    to="/deployments/repositories/new"
                     class="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-700"
                 >
                     Register a repository
@@ -143,7 +143,7 @@ const types = computed(() => session.reference.repository_types ?? []);
                     <tbody class="divide-y divide-slate-100">
                         <tr v-for="repository in repositories" :key="repository.id" class="align-top">
                             <td class="px-5 py-2">
-                                <RouterLink :to="`/repositories/${repository.id}`" class="font-medium underline">
+                                <RouterLink :to="`/deployments/repositories/${repository.id}`" class="font-medium underline">
                                     {{ repository.name }}
                                 </RouterLink>
                                 <span v-if="repository.manifest_name" class="block text-xs text-slate-400">

@@ -1,8 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 
-import { ApiError, api, endpoint } from '../api';
-import SearchableCombobox from './SearchableCombobox.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import SearchableCombobox from '../../../components/SearchableCombobox.vue';
 
 /**
  * Browse a checkout's tree at an arbitrary ref/commit, and read a file's

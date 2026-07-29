@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Apps\AppRegistry;
+use App\Apps\ConsoleApp;
 use App\Enums\RepoAction;
 use App\Enums\RepositoryType;
 use App\Support\Permissions;
@@ -91,6 +93,29 @@ class User extends Authenticatable
     public function hasRole(string $role): bool
     {
         return $this->roles()->where('name', $role)->exists();
+    }
+
+    /**
+     * Whether this account may open one of the console's apps.
+     *
+     * The app itself decides — see BaseApp::accessibleBy() — because what counts
+     * as access is the app's business, not the user model's.
+     */
+    public function canUseApp(ConsoleApp|string $app): bool
+    {
+        $definition = $app instanceof ConsoleApp ? $app : app(AppRegistry::class)->find($app);
+
+        return $definition !== null && $definition->accessibleBy($this);
+    }
+
+    /**
+     * The apps on this account's launcher, id => app.
+     *
+     * @return array<string, ConsoleApp>
+     */
+    public function apps(): array
+    {
+        return app(AppRegistry::class)->availableTo($this);
     }
 
     /**

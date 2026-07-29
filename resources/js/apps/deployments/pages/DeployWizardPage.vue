@@ -2,13 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
 import CheckoutPicker from '../components/CheckoutPicker.vue';
 import DeployOptions from '../components/DeployOptions.vue';
-import LoadState from '../components/LoadState.vue';
+import LoadState from '../../../components/LoadState.vue';
 import PlanReview from '../components/PlanReview.vue';
-import { flash, flashError, session } from '../store';
+import { flash, flashError, session } from '../../../store';
 
 /**
  * The deploy and undeploy wizards. One component, two intents — but deliberately

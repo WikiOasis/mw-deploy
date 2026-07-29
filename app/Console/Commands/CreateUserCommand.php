@@ -13,7 +13,7 @@ use Illuminate\Validation\Rules\Password;
 
 /**
  * Bootstrap path for the first account, since there is no self-registration.
- * After this, accounts are created through the users screen.
+ * After this, accounts are created through the console's access screen.
  */
 final class CreateUserCommand extends Command
 {
@@ -23,7 +23,7 @@ final class CreateUserCommand extends Command
                             {--role=* : Role names to grant, e.g. --role=admin}
                             {--password= : Password; prompted for if omitted}';
 
-    protected $description = 'Create a deploy portal account and grant it roles';
+    protected $description = 'Create a console account and grant it roles';
 
     public function handle(): int
     {

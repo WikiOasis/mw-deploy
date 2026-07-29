@@ -2,13 +2,13 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import FormField from '../components/FormField.vue';
-import LoadState from '../components/LoadState.vue';
-import ModalDialog from '../components/ModalDialog.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import FormField from '../../../components/FormField.vue';
+import LoadState from '../../../components/LoadState.vue';
+import ModalDialog from '../../../components/ModalDialog.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { flash, flashError } from '../store';
+import { flash, flashError } from '../../../store';
 
 /**
  * MediaWiki core versions: what exists, cutting a new one, removing one.
@@ -159,7 +159,7 @@ const remove = async () => {
             <div class="grid gap-4 lg:grid-cols-2">
                 <CardPanel v-for="version in versions" :key="version.id">
                     <div class="flex flex-wrap items-center gap-2">
-                        <RouterLink :to="`/versions/${version.id}`" class="text-base font-semibold underline">
+                        <RouterLink :to="`/deployments/versions/${version.id}`" class="text-base font-semibold underline">
                             {{ version.version }}
                         </RouterLink>
                         <StatusBadge :label="version.status_label" :classes="version.status_classes" />
@@ -308,7 +308,7 @@ const remove = async () => {
                 </p>
 
                 <p class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-900">
-                    The portal does not check whether any wiki still points at {{ removing.version }} before
+                    This app does not check whether any wiki still points at {{ removing.version }} before
                     removing it — confirm that separately before continuing.
                 </p>
 

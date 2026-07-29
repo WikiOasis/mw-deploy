@@ -1,9 +1,9 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 
-import { api, endpoint } from '../api';
-import { relative, shortRef } from '../format';
-import SearchableCombobox from './SearchableCombobox.vue';
+import { api, endpoint } from '../../../api';
+import { relative, shortRef } from '../../../format';
+import SearchableCombobox from '../../../components/SearchableCombobox.vue';
 import StatusBadge from './StatusBadge.vue';
 
 /**

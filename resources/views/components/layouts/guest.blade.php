@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ isset($title) ? $title.' — ' : '' }}{{ config('app.name') }}</title>
+    <title>{{ isset($title) ? $title.' — ' : '' }}{{ config('console.name') }}</title>
     {{-- Deliberately not the SPA bundle: these are the pages you need on the day
          the application bundle is what broke. --}}
     @vite(['resources/css/app.css', 'resources/js/auth.js'])
@@ -11,8 +11,8 @@
 <body class="flex h-full items-center justify-center bg-slate-100 px-4 py-12 text-slate-900 antialiased">
 <div class="w-full max-w-md">
     <div class="mb-6 flex items-center justify-center gap-2 text-lg font-semibold tracking-tight">
-        <span class="inline-flex h-7 w-7 items-center justify-center rounded bg-slate-900 text-xs font-bold text-white">mw</span>
-        {{ config('app.name') }}
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded bg-slate-900 text-xs font-bold text-white">wo</span>
+        {{ config('console.name') }}
     </div>
 
     <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">

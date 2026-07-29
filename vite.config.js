@@ -6,11 +6,11 @@ import vue from '@vitejs/plugin-vue';
 /**
  * Two entry points, on purpose:
  *
- *   app.js   the single-page app — Vue, the router, every screen.
+ *   app.js   the console — Vue, the router, the launcher and every app's screens.
  *   auth.js  a few kilobytes for the server-rendered sign-in and TOTP pages, which
  *            have to keep working when the application bundle is what broke.
  *
- * No remote webfonts: the portal runs on the Salt master, which is not necessarily
+ * No remote webfonts: the console runs on the Salt master, which is not necessarily
  * allowed to reach the public internet, and an ops tool that waits on a CDN to
  * render is an ops tool that fails when you need it. The system font stack in
  * resources/css/app.css covers it.

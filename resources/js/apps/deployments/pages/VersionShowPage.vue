@@ -2,11 +2,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
-import { ApiError, api, endpoint } from '../api';
-import CardPanel from '../components/CardPanel.vue';
-import LoadState from '../components/LoadState.vue';
+import { ApiError, api, endpoint } from '../../../api';
+import CardPanel from '../../../components/CardPanel.vue';
+import LoadState from '../../../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
-import { relative, shortRef } from '../format';
+import { relative, shortRef } from '../../../format';
 
 /**
  * One core version and everything checked out inside it.
@@ -61,7 +61,7 @@ const typeLabels = {
     <LoadState :loading="loading" :error="error" @retry="load">
         <div v-if="version" class="space-y-6">
             <header class="flex flex-wrap items-center gap-3">
-                <RouterLink to="/versions" class="text-sm text-slate-500 underline">Versions</RouterLink>
+                <RouterLink to="/deployments/versions" class="text-sm text-slate-500 underline">Versions</RouterLink>
                 <h1 class="text-lg font-semibold tracking-tight">{{ version.version }}</h1>
                 <StatusBadge :label="version.status_label" :classes="version.status_classes" />
                 <code class="font-mono text-xs text-slate-500">{{ version.staging_path }}</code>
@@ -106,7 +106,7 @@ const typeLabels = {
                     <tbody class="divide-y divide-slate-100">
                         <tr v-for="checkout in checkouts" :key="checkout.id">
                             <td class="px-5 py-2">
-                                <RouterLink :to="`/repositories/${checkout.repository_id}`" class="underline">
+                                <RouterLink :to="`/deployments/repositories/${checkout.repository_id}`" class="underline">
                                     {{ checkout.repository_name }}
                                 </RouterLink>
                             </td>

@@ -2,9 +2,10 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "wikioasis/mw-deploy",
     "type": "project",
-    "description": "WikiOasis deploy portal: a Laravel front end for MediaWiki deployments, driving the fleet through the local salt CLI.",
+    "description": "WikiOasis Console: a Laravel app console whose deployments app drives MediaWiki deployments through the local salt CLI.",
     "keywords": [
         "wikioasis",
+        "console",
         "mediawiki",
         "deploy",
         "salt"

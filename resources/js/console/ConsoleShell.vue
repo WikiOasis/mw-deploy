@@ -1,28 +1,34 @@
 <script setup>
-import { computed } from 'vue';
-import { RouterLink, RouterView } from 'vue-router';
+import { computed, defineAsyncComponent } from 'vue';
+import { RouterLink, RouterView, useRoute } from 'vue-router';
 
-import { can, dismissFlash, registryIsEmpty, session } from '../store';
+import { manifestFor } from '../apps';
+import { appById, can, consoleName, dismissFlash, session } from '../store';
 
 /**
- * Nav, flash messages and the routed page.
+ * The console chrome: which app you are in, that app's nav, the flash messages
+ * and the routed screen.
  *
- * The nav is permission-driven from the bootstrap payload, so a reader never sees
- * a Targets link that would 403, and a fresh install gets pointed at the import
- * screen rather than at five empty lists.
+ * The shell knows nothing about any app. The active app is whatever the matched
+ * route says it belongs to; its nav, its chrome buttons and its own setup banner
+ * all come from that app's manifest. On the launcher there is no active app, so
+ * the chrome is just the console.
  */
-const links = computed(() =>
-    [
-        { to: '/', label: 'Dashboard', show: true },
-        { to: '/deployments', label: 'History', show: true },
-        { to: '/versions', label: 'Versions', show: true },
-        { to: '/repositories', label: 'Repositories', show: true },
-        { to: '/import', label: 'Import', show: can('manage_repositories') },
-        { to: '/patches', label: 'Patches', show: true },
-        { to: '/targets', label: 'Targets', show: can('manage_targets') },
-        { to: '/users', label: 'Users', show: can('manage_users') },
-    ].filter((link) => link.show),
-);
+const route = useRoute();
+
+const activeApp = computed(() => (typeof route.meta.app === 'string' ? appById(route.meta.app) : null));
+
+const manifest = computed(() => (activeApp.value ? manifestFor(activeApp.value.id) : null));
+
+/** `requires` is an ability from the bootstrap payload; no entry means always. */
+const permitted = (entry) => typeof entry.requires !== 'string' || can(entry.requires);
+
+const links = computed(() => (manifest.value?.nav ?? []).filter(permitted));
+
+const actions = computed(() => (manifest.value?.actions ?? []).filter(permitted));
+
+/** The active app's own banner, if it ships one. */
+const notice = computed(() => (manifest.value?.notice ? defineAsyncComponent(manifest.value.notice) : null));
 
 const flashClasses = (kind) =>
     ({
@@ -30,21 +36,33 @@ const flashClasses = (kind) =>
         error: 'border-rose-200 bg-rose-50 text-rose-900',
         info: 'border-sky-200 bg-sky-50 text-sky-900',
     })[kind] ?? 'border-slate-200 bg-slate-50 text-slate-900';
+
+const actionClasses = (variant) =>
+    variant === 'primary'
+        ? 'rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-700'
+        : 'rounded-md px-3 py-1.5 font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50';
 </script>
 
 <template>
     <div class="min-h-full">
         <nav class="border-b border-slate-200 bg-white">
             <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
+                <!-- The launcher is where the apps are, so the brand goes there
+                     rather than to any one app's dashboard. -->
                 <RouterLink to="/" class="flex items-center gap-2 font-semibold tracking-tight">
                     <span
                         class="inline-flex h-6 w-6 items-center justify-center rounded bg-slate-900 text-xs font-bold text-white"
-                        >mw</span
+                        >wo</span
                     >
-                    Deploy Portal
+                    {{ consoleName }}
                 </RouterLink>
 
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <div v-if="activeApp" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <span class="text-slate-300">/</span>
+                    <RouterLink :to="activeApp.path" class="font-medium text-slate-900">
+                        {{ activeApp.name }}
+                    </RouterLink>
+
                     <RouterLink
                         v-for="link in links"
                         :key="link.to"
@@ -58,18 +76,18 @@ const flashClasses = (kind) =>
 
                 <div class="ml-auto flex items-center gap-3 text-sm">
                     <RouterLink
-                        v-if="can('undeploy')"
-                        to="/deployments/undeploy"
-                        class="rounded-md px-3 py-1.5 font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50"
+                        v-for="action in actions"
+                        :key="action.to"
+                        :to="action.to"
+                        :class="actionClasses(action.variant)"
                     >
-                        Undeploy
+                        {{ action.label }}
                     </RouterLink>
-                    <RouterLink
-                        v-if="can('deploy')"
-                        to="/deployments/new"
-                        class="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-700"
-                    >
-                        New deployment
+
+                    <!-- Central access management: deliberately not an app, because
+                         it is how the apps are handed out. -->
+                    <RouterLink v-if="can('manage_users')" to="/access" class="text-slate-600 hover:text-slate-900">
+                        Access
                     </RouterLink>
 
                     <a href="/two-factor/setup" class="text-slate-600 hover:text-slate-900">
@@ -95,17 +113,7 @@ const flashClasses = (kind) =>
         </nav>
 
         <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-            <div
-                v-if="registryIsEmpty && can('manage_repositories')"
-                class="mb-6 rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900"
-            >
-                <p class="font-medium">Nothing is registered yet.</p>
-                <p class="mt-1 text-xs">
-                    If this farm already has MediaWiki on disk, the portal can read the tree and fill the
-                    registry in from it — every version, extension, skin and their current refs.
-                    <RouterLink to="/import" class="font-medium underline">Scan the tree</RouterLink>.
-                </p>
-            </div>
+            <component :is="notice" v-if="notice" />
 
             <div
                 v-if="session.user && !session.user.two_factor_enabled && session.user.two_factor_required"
