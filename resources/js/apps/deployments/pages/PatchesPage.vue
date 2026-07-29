@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 
 import { ApiError, api, endpoint } from '../../../api';
+import AppButton from '../../../components/AppButton.vue';
 import CardPanel from '../../../components/CardPanel.vue';
 import FormField from '../../../components/FormField.vue';
 import LoadState from '../../../components/LoadState.vue';
@@ -161,28 +162,36 @@ const deactivate = async (patch) => {
 
 <template>
     <div class="space-y-4">
-        <header class="flex flex-wrap items-center gap-3">
-            <h1 class="text-lg font-semibold tracking-tight">Patches</h1>
-            <button
-                v-if="data?.can?.manage"
-                type="button"
-                class="ml-auto rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-                @click="open()"
-            >
+        <header class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <h1 class="text-xl font-semibold">Patches</h1>
+                <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
+                    Local changes this farm carries on top of a repository, reapplied after every deployment of it.
+                </p>
+            </div>
+            <AppButton v-if="data?.can?.manage" variant="primary" icon="plus" @click="open()">
                 Register a patch
-            </button>
+            </AppButton>
         </header>
 
         <LoadState
             :loading="loading"
             :error="error"
             :empty="patches.length === 0"
-            empty-message="No patches are registered."
+            empty-title="No patches are registered"
+            empty-message="A patch is a local change this farm carries on top of a repository — reapplied every time that repository is deployed, so an upgrade does not quietly drop it."
+            :skeleton-rows="4"
             @retry="load"
         >
+            <template #empty-action>
+                <AppButton v-if="data?.can?.manage" variant="primary" icon="plus" @click="open()">
+                    Register a patch
+                </AppButton>
+            </template>
+
             <CardPanel flush>
                 <table class="w-full text-sm">
-                    <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
+                    <thead class="label-caps border-b border-line text-start">
                         <tr>
                             <th class="px-5 py-2">Patch</th>
                             <th class="px-5 py-2">Applies to</th>
@@ -190,40 +199,40 @@ const deactivate = async (patch) => {
                             <th class="px-5 py-2"></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100">
+                    <tbody class="divide-y divide-line">
                         <tr v-for="patch in patches" :key="patch.id" class="align-top">
                             <td class="px-5 py-2">
-                                <p class="font-medium" :class="patch.active ? '' : 'text-slate-400 line-through'">
+                                <p class="font-medium" :class="patch.active ? '' : 'text-fg-subtle line-through'">
                                     {{ patch.name }}
                                 </p>
-                                <p v-if="patch.description" class="text-xs text-slate-500">{{ patch.description }}</p>
-                                <p class="font-mono text-xs text-slate-400">{{ patch.original_filename }}</p>
+                                <p v-if="patch.description" class="text-xs text-fg-subtle">{{ patch.description }}</p>
+                                <p class="font-mono text-xs text-fg-subtle">{{ patch.original_filename }}</p>
                             </td>
                             <td class="px-5 py-2">
                                 <p>{{ patch.target_label }}</p>
-                                <code class="font-mono text-xs text-slate-500">{{ patch.target_path }}</code>
+                                <code class="font-mono text-xs text-fg-subtle">{{ patch.target_path }}</code>
                             </td>
                             <td class="px-5 py-2">
                                 <template v-if="patch.last_checked_at">
-                                    <span :class="patch.last_check_ok ? 'text-emerald-700' : 'text-rose-700'">
+                                    <span :class="patch.last_check_ok ? 'text-success-text' : 'text-danger-text'">
                                         {{ patch.last_check_ok ? 'applies cleanly' : 'failed dry run' }}
                                     </span>
-                                    <span class="block text-xs text-slate-400">
+                                    <span class="block text-xs text-fg-subtle">
                                         {{ relative(patch.last_checked_at) }}
                                     </span>
                                     <pre
                                         v-if="!patch.last_check_ok && patch.last_check_detail"
-                                        class="mt-1 max-h-24 overflow-auto rounded bg-slate-50 p-2 font-mono text-xs text-slate-600"
+                                        class="mt-1 max-h-24 overflow-auto rounded bg-sunken p-2 font-mono text-xs text-fg-muted"
                                         >{{ patch.last_check_detail }}</pre
                                     >
                                 </template>
-                                <span v-else class="text-xs text-slate-400">never checked</span>
+                                <span v-else class="text-xs text-fg-subtle">never checked</span>
                             </td>
-                            <td class="px-5 py-2 text-right text-sm whitespace-nowrap">
+                            <td class="px-5 py-2 text-end text-sm whitespace-nowrap">
                                 <button
                                     v-if="patch.can.check"
                                     type="button"
-                                    class="text-slate-600 underline disabled:opacity-50"
+                                    class="link-quiet disabled:opacity-50"
                                     :disabled="busy"
                                     @click="check(patch)"
                                 >
@@ -232,7 +241,7 @@ const deactivate = async (patch) => {
                                 <button
                                     v-if="patch.can.manage"
                                     type="button"
-                                    class="ml-3 text-slate-600 underline"
+                                    class="link-quiet ms-3"
                                     @click="open(patch)"
                                 >
                                     Edit
@@ -240,7 +249,7 @@ const deactivate = async (patch) => {
                                 <button
                                     v-if="patch.can.manage && patch.active"
                                     type="button"
-                                    class="ml-3 text-rose-700 underline disabled:opacity-50"
+                                    class="ms-3 inline-flex min-h-8 items-center rounded-md px-2 text-danger-text hover:bg-danger-surface disabled:opacity-50"
                                     :disabled="busy"
                                     @click="deactivate(patch)"
                                 >
@@ -261,19 +270,19 @@ const deactivate = async (patch) => {
             @close="editing = null"
         >
             <div class="space-y-4">
-                <FormField label="Name" required :error="errors.name?.[0]">
-                    <input
+                <FormField label="Name" required :error="errors.name?.[0]" v-slot="field">
+                    <input v-bind="field"
                         v-model="form.name"
                         type="text"
-                        class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full"
                     />
                 </FormField>
 
-                <FormField label="Description" :error="errors.description?.[0]">
-                    <textarea
+                <FormField label="Description" :error="errors.description?.[0]" v-slot="field">
+                    <textarea v-bind="field"
                         v-model="form.description"
                         rows="2"
-                        class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full"
                     />
                 </FormField>
 
@@ -282,10 +291,10 @@ const deactivate = async (patch) => {
                         label="Target checkout"
                         :error="errors.target_repository_version_id?.[0]"
                         hint="A patch is written against one core version's files."
-                    >
-                        <select
+                     v-slot="field">
+                        <select v-bind="field"
                             v-model="form.target_repository_version_id"
-                            class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                            class="input-control block w-full"
                             @change="onCheckoutChange"
                         >
                             <option value="">Freeform — no checkout</option>
@@ -300,20 +309,20 @@ const deactivate = async (patch) => {
                         required
                         :error="errors.target_path?.[0]"
                         hint="Relative to the deploy root; the directory the patch is applied in."
-                    >
-                        <input
+                     v-slot="field">
+                        <input v-bind="field"
                             v-model="form.target_path"
                             type="text"
-                            class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                            class="input-control block w-full font-mono"
                         />
                     </FormField>
                 </div>
 
                 <div class="grid gap-4 sm:grid-cols-2">
-                    <FormField label="Format" :error="errors.format?.[0]">
-                        <select
+                    <FormField label="Format" :error="errors.format?.[0]" v-slot="field">
+                        <select v-bind="field"
                             v-model="form.format"
-                            class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                            class="input-control block w-full"
                         >
                             <option value="unified">unified (patch -p1)</option>
                             <option value="git">git (git apply)</option>
@@ -325,8 +334,8 @@ const deactivate = async (patch) => {
                         :required="!editing.id"
                         :error="errors.patch_file?.[0]"
                         hint="Replacing the file clears the previous dry-run verdict."
-                    >
-                        <input
+                     v-slot="field">
+                        <input v-bind="field"
                             type="file"
                             class="block w-full text-sm"
                             @change="file = $event.target.files[0] ?? null"
@@ -335,18 +344,18 @@ const deactivate = async (patch) => {
                 </div>
 
                 <label class="flex items-center gap-2 text-sm">
-                    <input v-model="form.active" type="checkbox" class="rounded border-slate-300" />
+                    <input v-model="form.active" type="checkbox" class="size-4 rounded border-line-strong" />
                     Active — offered on deployments touching its repository
                 </label>
             </div>
 
             <template #footer>
-                <button type="button" class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300" @click="editing = null">
+                <button type="button" class="btn btn-secondary" @click="editing = null">
                     Cancel
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    class="btn btn-primary"
                     :disabled="busy || !form.name"
                     @click="submit"
                 >

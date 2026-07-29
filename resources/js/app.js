@@ -1,6 +1,10 @@
 import { createApp } from 'vue';
 
 import './echo';
+// Imported for its side effect: resolving the stored appearance onto the root
+// element. The document head has already done this once before first paint; this
+// is what keeps it followed when the OS setting changes mid-session.
+import './theme';
 import ConsoleShell from './console/ConsoleShell.vue';
 import { router } from './router';
 import { hydrate } from './store';

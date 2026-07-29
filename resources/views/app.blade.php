@@ -17,9 +17,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ config('console.name') }}</title>
+    <x-theme-boot />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="h-full bg-slate-50 text-slate-900 antialiased">
+<body class="h-full bg-canvas text-fg antialiased">
     <div id="app" class="min-h-full"></div>
 
     <script type="application/json" id="console-bootstrap">@json($bootstrap)</script>
@@ -27,11 +28,11 @@
     <noscript>
         <div class="mx-auto max-w-2xl p-8">
             <h1 class="text-lg font-semibold">JavaScript is required</h1>
-            <p class="mt-2 text-sm text-slate-600">
+            <p class="mt-3 max-w-prose text-sm text-pretty text-fg-muted">
                 The console's interface runs in the browser. Sign-in works without it, but the launcher and
                 the apps behind it do not. If you need to act on the fleet right now without a working
-                browser, <code class="font-mono">mwdeploy-shim</code> on the Salt master does everything the
-                deployments app drives.
+                browser, <code class="rounded bg-sunken px-1 py-0.5 font-mono text-xs">mwdeploy-shim</code> on
+                the Salt master does everything the deployments app drives.
             </p>
         </div>
     </noscript>

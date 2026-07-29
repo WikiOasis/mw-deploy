@@ -1,14 +1,16 @@
 <script setup>
-import { RouterLink } from 'vue-router';
+import AppButton from '../../components/AppButton.vue';
 </script>
 
 <template>
-    <div class="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <h1 class="text-lg font-semibold tracking-tight">No such screen</h1>
-        <p class="mt-2 text-sm text-slate-600">
-            That path is not part of this console, or belongs to an app your account cannot open. If you followed a
-            link to a deployment or repository that has since been removed, it will not resolve.
+    <div class="panel mx-auto max-w-lg px-6 py-14 text-center">
+        <h1 class="text-xl font-semibold text-balance">No such screen</h1>
+        <p class="mx-auto mt-2.5 max-w-prose text-sm text-pretty text-fg-muted">
+            That path is not part of this console, or it belongs to an app your account cannot open. A link to a
+            deployment or repository that has since been removed will land here too.
         </p>
-        <RouterLink to="/" class="mt-4 inline-block text-sm font-medium underline">Back to your apps</RouterLink>
+        <div class="mt-6 flex justify-center">
+            <AppButton to="/" variant="primary" icon="grid">Back to your apps</AppButton>
+        </div>
     </div>
 </template>

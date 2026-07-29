@@ -51,7 +51,7 @@ final readonly class ImportPlanEntry
             'action' => $this->action->value,
             'action_label' => $this->action->label(),
             'action_description' => $this->action->description(),
-            'badge_classes' => $this->action->badgeClasses(),
+            'badge_tone' => $this->action->badgeTone(),
             'actionable' => $this->action->isActionable(),
             'selected_by_default' => $this->selectedByDefault(),
             'type' => $this->type->value,

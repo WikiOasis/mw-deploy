@@ -3,11 +3,13 @@ import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import { ApiError, api, endpoint } from '../../../api';
+import AppButton from '../../../components/AppButton.vue';
+import AppIcon from '../../../components/AppIcon.vue';
 import CardPanel from '../../../components/CardPanel.vue';
 import LoadState from '../../../components/LoadState.vue';
-import StatusBadge from '../components/StatusBadge.vue';
+import StatusBadge from '../../../components/StatusBadge.vue';
 import StepList from '../components/StepList.vue';
-import { duration, relative } from '../../../format';
+import { duration, pluralise, relative } from '../../../format';
 import { usePolling } from '../../../live';
 import { can, session } from '../../../store';
 
@@ -45,40 +47,58 @@ onMounted(start);
 </script>
 
 <template>
-    <LoadState :loading="loading" :error="error" @retry="load">
+    <LoadState :loading="loading" :error="error" :skeleton-rows="5" @retry="load">
         <div v-if="data" class="space-y-6">
-            <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                    <p class="text-xs tracking-wide text-slate-500 uppercase">Repositories</p>
-                    <p class="mt-1 text-2xl font-semibold">{{ data.registry.repositories }}</p>
-                    <p class="text-xs text-slate-500">{{ data.registry.checkouts }} checkouts on disk</p>
-                </div>
-                <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                    <p class="text-xs tracking-wide text-slate-500 uppercase">Core versions</p>
-                    <p class="mt-1 text-2xl font-semibold">{{ data.versions.length }}</p>
-                    <p class="text-xs text-slate-500">
-                        {{ data.versions.map((version) => version.version).join(', ') || 'none registered' }}
+            <div>
+                <h1 class="text-xl font-semibold">Overview</h1>
+                <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
+                    What the registry says the farm holds, what is deploying right now, and what ran recently.
+                </p>
+            </div>
+
+            <!-- Four measures of the same registry, so they are one strip rather
+                 than four cards: the divider carries the grouping and the eye is
+                 not asked to cross four borders to compare two numbers. -->
+            <section class="panel grid divide-line sm:grid-cols-2 sm:divide-x lg:grid-cols-4">
+                <div class="p-5">
+                    <p class="label-caps">Repositories</p>
+                    <p class="numeric mt-1.5 text-2xl font-semibold">{{ data.registry.repositories }}</p>
+                    <p class="mt-0.5 text-xs text-fg-subtle">
+                        {{ pluralise(data.registry.checkouts, 'checkout') }} on disk
                     </p>
                 </div>
-                <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                    <p class="text-xs tracking-wide text-slate-500 uppercase">Fleet</p>
-                    <p class="mt-1 text-2xl font-semibold">{{ data.registry.appservers }}</p>
-                    <p class="text-xs text-slate-500">
-                        appservers, {{ data.registry.proxies }} proxies
+                <div class="border-t border-line p-5 sm:border-t-0">
+                    <p class="label-caps">Core versions</p>
+                    <p class="numeric mt-1.5 text-2xl font-semibold">{{ data.versions.length }}</p>
+                    <p class="mt-0.5 truncate text-xs text-fg-subtle">
+                        {{ data.versions.map((version) => version.version).join(', ') || 'None registered' }}
                     </p>
                 </div>
-                <div
-                    class="rounded-lg border bg-white p-4 shadow-sm"
-                    :class="data.registry.drifted_checkouts > 0 ? 'border-amber-300' : 'border-slate-200'"
-                >
-                    <p class="text-xs tracking-wide text-slate-500 uppercase">Drift</p>
+                <div class="border-t border-line p-5 lg:border-t-0">
+                    <p class="label-caps">Fleet</p>
+                    <p class="numeric mt-1.5 text-2xl font-semibold">{{ data.registry.appservers }}</p>
+                    <p class="mt-0.5 text-xs text-fg-subtle">
+                        appservers, {{ pluralise(data.registry.proxies, 'proxy', 'proxies') }}
+                    </p>
+                </div>
+                <!-- Drift is the only one of the four that can be bad news, so it
+                     is the only one that ever takes a colour — and it takes an icon
+                     with it, because a number turning amber is not something you
+                     can be relied on to notice. -->
+                <div class="border-t border-line p-5 lg:border-t-0">
+                    <p class="label-caps">Drift</p>
                     <p
-                        class="mt-1 text-2xl font-semibold"
-                        :class="data.registry.drifted_checkouts > 0 ? 'text-amber-700' : ''"
+                        class="numeric mt-1.5 flex items-center gap-1.5 text-2xl font-semibold"
+                        :class="data.registry.drifted_checkouts > 0 ? 'text-warning-text' : ''"
                     >
+                        <AppIcon
+                            v-if="data.registry.drifted_checkouts > 0"
+                            name="warning"
+                            class="size-5 shrink-0"
+                        />
                         {{ data.registry.drifted_checkouts }}
                     </p>
-                    <p class="text-xs text-slate-500">
+                    <p class="mt-0.5 text-xs text-pretty text-fg-subtle">
                         checkouts whose disk ref differs from their pin
                     </p>
                 </div>
@@ -89,48 +109,55 @@ onMounted(start);
                  than leaving to be discovered in the wizard. -->
             <div
                 v-if="!data.registry.has_config_repository && can('manage_repositories')"
-                class="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900"
+                class="flex items-start gap-2.5 rounded-xl border border-info-line bg-info-surface px-4 py-3.5"
             >
-                <p class="font-medium">No config repository is registered.</p>
-                <p class="mt-1 text-xs">
-                    Wiki config lives outside the version trees, at
-                    <code class="font-mono">{{ session.settings.config_dir }}</code>.
-                    <RouterLink to="/deployments/repositories/config" class="font-medium underline">Add it</RouterLink> —
-                    it takes the git URL and nothing else.
-                </p>
+                <AppIcon name="info" class="mt-0.5 size-4 shrink-0 text-info-text" />
+                <div class="min-w-0 text-sm text-info-text">
+                    <p class="font-medium">No config repository is registered.</p>
+                    <p class="mt-1 text-pretty">
+                        Wiki config lives outside the version trees, at
+                        <code class="rounded-sm bg-info-line/30 px-1 py-0.5 font-mono text-xs">{{
+                            session.settings.config_dir
+                        }}</code>. It takes the git URL and nothing else.
+                    </p>
+                    <RouterLink to="/deployments/repositories/config" class="mt-2.5 inline-flex font-medium underline">
+                        Add the config repository
+                    </RouterLink>
+                </div>
             </div>
 
             <CardPanel
                 :title="`Running now (${data.active.length})`"
                 subtitle="Live from the queue worker. Steps update over the websocket, with a poll behind it."
             >
-                <p v-if="data.active.length === 0" class="text-sm text-slate-500">
+                <p v-if="data.active.length === 0" class="text-sm text-fg-subtle">
                     Nothing is deploying. The fleet is quiet.
                 </p>
 
                 <div v-else class="space-y-6">
                     <article v-for="deployment in data.active" :key="deployment.id">
-                        <header class="flex flex-wrap items-center gap-2">
-                            <RouterLink
-                                :to="`/deployments/${deployment.id}`"
-                                class="font-medium underline decoration-slate-300"
-                            >
+                        <header class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                            <RouterLink :to="`/deployments/${deployment.id}`" class="numeric link font-medium">
                                 #{{ deployment.id }}
                             </RouterLink>
-                            <StatusBadge :label="deployment.status_label" :classes="deployment.status_classes" />
-                            <StatusBadge :label="deployment.intent_label" :classes="deployment.intent_classes" />
-                            <span class="text-sm text-slate-600">{{ deployment.summary }}</span>
-                            <span class="ml-auto text-xs text-slate-500">
+                            <StatusBadge :label="deployment.status_label" :tone="deployment.status_tone" />
+                            <StatusBadge :label="deployment.intent_label" :tone="deployment.intent_tone" />
+                            <span class="text-sm text-fg-muted">{{ deployment.summary }}</span>
+                            <span class="numeric ms-auto text-xs text-fg-subtle">
                                 {{ deployment.creator }} · {{ duration(deployment.duration) }}
                             </span>
                         </header>
 
                         <div
                             v-if="deployment.awaiting_decision"
-                            class="mt-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                            class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning-line bg-warning-surface px-4 py-3 text-sm text-warning-text"
                         >
+                            <AppIcon name="warning" class="size-4 shrink-0" />
                             <p class="font-medium">{{ deployment.pending_decision_label }} — waiting for a decision.</p>
-                            <RouterLink :to="`/deployments/${deployment.id}`" class="text-xs font-medium underline">
+                            <RouterLink
+                                :to="`/deployments/${deployment.id}`"
+                                class="ms-auto font-medium whitespace-nowrap underline"
+                            >
                                 Answer it
                             </RouterLink>
                         </div>
@@ -147,40 +174,52 @@ onMounted(start);
 
             <CardPanel title="Recent deployments" flush>
                 <template #actions>
-                    <RouterLink to="/deployments/history" class="text-slate-600 underline hover:text-slate-900">
+                    <AppButton to="/deployments/history" variant="ghost" trailing-icon="chevron-right">
                         Full history
-                    </RouterLink>
+                    </AppButton>
                 </template>
 
-                <table class="w-full text-sm">
-                    <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
-                        <tr>
-                            <th class="px-5 py-2">#</th>
-                            <th class="px-5 py-2">Status</th>
-                            <th class="px-5 py-2">What</th>
-                            <th class="px-5 py-2">By</th>
-                            <th class="px-5 py-2">When</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        <tr v-for="deployment in data.recent" :key="deployment.id">
-                            <td class="px-5 py-2">
-                                <RouterLink :to="`/deployments/${deployment.id}`" class="underline">
-                                    {{ deployment.id }}
-                                </RouterLink>
-                            </td>
-                            <td class="px-5 py-2">
-                                <StatusBadge :label="deployment.status_label" :classes="deployment.status_classes" />
-                            </td>
-                            <td class="px-5 py-2">{{ deployment.summary }}</td>
-                            <td class="px-5 py-2 text-slate-600">{{ deployment.creator }}</td>
-                            <td class="px-5 py-2 text-slate-500">{{ relative(deployment.created_at) }}</td>
-                        </tr>
-                        <tr v-if="data.recent.length === 0">
-                            <td colspan="5" class="px-5 py-4 text-slate-500">No deployments yet.</td>
-                        </tr>
-                    </tbody>
-                </table>
+                <!-- Scrolls inside the panel rather than widening the page: a
+                     summary line can be long, and the page must not go sideways. -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="label-caps border-b border-line text-start">
+                            <tr>
+                                <th class="px-5 py-2.5 font-semibold">#</th>
+                                <th class="px-5 py-2.5 font-semibold">Status</th>
+                                <th class="px-5 py-2.5 font-semibold">What</th>
+                                <th class="px-5 py-2.5 font-semibold">By</th>
+                                <th class="px-5 py-2.5 font-semibold">When</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-line">
+                            <tr
+                                v-for="deployment in data.recent"
+                                :key="deployment.id"
+                                class="hover:bg-sunken motion-safe:transition-colors motion-safe:duration-100"
+                            >
+                                <td class="numeric px-5 py-2.5">
+                                    <RouterLink :to="`/deployments/${deployment.id}`" class="link">
+                                        {{ deployment.id }}
+                                    </RouterLink>
+                                </td>
+                                <td class="px-5 py-2.5">
+                                    <StatusBadge :label="deployment.status_label" :tone="deployment.status_tone" />
+                                </td>
+                                <td class="px-5 py-2.5">{{ deployment.summary }}</td>
+                                <td class="px-5 py-2.5 text-fg-muted">{{ deployment.creator }}</td>
+                                <td class="numeric px-5 py-2.5 whitespace-nowrap text-fg-subtle">
+                                    {{ relative(deployment.created_at) }}
+                                </td>
+                            </tr>
+                            <tr v-if="data.recent.length === 0">
+                                <td colspan="5" class="px-5 py-8 text-center text-sm text-fg-subtle">
+                                    Nothing has been deployed from this console yet.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </CardPanel>
         </div>
     </LoadState>

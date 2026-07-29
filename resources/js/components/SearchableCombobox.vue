@@ -1,5 +1,7 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, useId, watch } from 'vue';
+
+import AppIcon from './AppIcon.vue';
 
 /**
  * A type-to-filter input backed by a listbox, replacing the native `<select>`
@@ -21,6 +23,16 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['update:modelValue']);
+
+/**
+ * Per-instance ids. The option ids used to be `combobox-option-<index>`, which is
+ * fine until a screen renders more than one of these — the ref picker renders one
+ * per repository — and then every instance's `aria-activedescendant` points at the
+ * first instance's option.
+ */
+const uid = useId();
+const listId = `${uid}-listbox`;
+const optionId = (index) => `${uid}-option-${index}`;
 
 const open = ref(false);
 const query = ref(props.modelValue ?? '');
@@ -96,7 +108,9 @@ const move = (delta) => {
     highlighted.value = (highlighted.value + delta + count) % count;
 
     nextTick(() => {
-        listEl.value?.querySelector('[data-highlighted="true"]')?.scrollIntoView({ block: 'nearest' });
+        listEl.value
+            ?.querySelector('[data-highlighted="true"]')
+            ?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
     });
 };
 
@@ -124,11 +138,12 @@ defineExpose({ focus: () => inputEl.value?.focus() });
             type="text"
             role="combobox"
             aria-autocomplete="list"
-            aria-expanded="open"
-            :aria-activedescendant="highlighted >= 0 ? `combobox-option-${highlighted}` : undefined"
+            :aria-expanded="open"
+            :aria-controls="listId"
+            :aria-activedescendant="highlighted >= 0 ? optionId(highlighted) : undefined"
             :value="query"
             :placeholder="placeholder"
-            class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+            class="input-control block w-full font-mono"
             @input="onInput"
             @focus="show"
             @blur="close"
@@ -140,21 +155,25 @@ defineExpose({ focus: () => inputEl.value?.focus() });
 
         <ul
             v-if="open"
+            :id="listId"
             ref="listEl"
             role="listbox"
-            class="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+            class="absolute z-20 mt-1.5 max-h-64 w-full overflow-auto overscroll-contain rounded-lg border border-line bg-raised py-1 shadow-raised"
         >
-            <li v-if="loading" class="px-3 py-1.5 text-xs text-slate-500">Loading…</li>
-            <li v-else-if="filtered.length === 0" class="px-3 py-1.5 text-xs text-slate-500">{{ emptyLabel }}</li>
+            <li v-if="loading" class="flex items-center gap-2 px-3 py-2 text-xs text-fg-subtle">
+                <AppIcon name="spinner" class="size-3.5" />
+                Loading…
+            </li>
+            <li v-else-if="filtered.length === 0" class="px-3 py-2 text-xs text-fg-subtle">{{ emptyLabel }}</li>
             <li
                 v-for="(option, index) in filtered"
-                :id="`combobox-option-${index}`"
+                :id="optionId(index)"
                 :key="option.value"
                 role="option"
                 :aria-selected="option.value === modelValue"
                 :data-highlighted="index === highlighted"
                 class="cursor-pointer px-3 py-1.5 text-sm"
-                :class="index === highlighted ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'"
+                :class="index === highlighted ? 'bg-accent text-accent-fg' : 'text-fg hover:bg-sunken'"
                 @mousedown.prevent="select(option)"
                 @mouseenter="highlighted = index"
             >

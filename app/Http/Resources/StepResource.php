@@ -25,7 +25,7 @@ final class StepResource extends JsonResource
             'label' => $this->label(),
             'subject' => $this->subject,
             'status' => $this->status->value,
-            'status_classes' => $this->status->badgeClasses(),
+            'status_tone' => $this->status->badgeTone(),
             'icon' => $this->status->icon(),
             'sequence' => $this->sequence,
             'elapsed' => $this->elapsedSeconds(),

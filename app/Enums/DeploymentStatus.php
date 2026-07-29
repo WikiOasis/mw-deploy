@@ -22,15 +22,23 @@ enum DeploymentStatus: string
         return ucfirst($this->value);
     }
 
-    /** Tailwind classes for the status pill. */
-    public function badgeClasses(): string
+    /**
+     * The pill's tone.
+     *
+     * A name, not a set of Tailwind classes: the console has a light and a dark
+     * appearance, and a colour chosen here could only ever describe one of them.
+     * The tone maps to a pair of tokens in resources/js/components/StatusBadge.vue,
+     * which is also where the icon that goes with it lives — "done" and "failed"
+     * have to be tellable apart without colour.
+     */
+    public function badgeTone(): string
     {
         return match ($this) {
-            self::Pending => 'bg-slate-100 text-slate-700 ring-slate-300',
-            self::Running => 'bg-sky-100 text-sky-800 ring-sky-300',
-            self::Done => 'bg-emerald-100 text-emerald-800 ring-emerald-300',
-            self::Failed => 'bg-rose-100 text-rose-800 ring-rose-300',
-            self::Aborted => 'bg-amber-100 text-amber-900 ring-amber-300',
+            self::Pending => 'neutral',
+            self::Running => 'info',
+            self::Done => 'success',
+            self::Failed => 'danger',
+            self::Aborted => 'warning',
         };
     }
 }

@@ -1,14 +1,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
+import { pluralise } from '../../../format';
 
 import { ApiError, api, endpoint } from '../../../api';
+import AppButton from '../../../components/AppButton.vue';
 import CardPanel from '../../../components/CardPanel.vue';
 import FormField from '../../../components/FormField.vue';
 import LoadState from '../../../components/LoadState.vue';
 import ModalDialog from '../../../components/ModalDialog.vue';
-import StatusBadge from '../components/StatusBadge.vue';
-import { flash, flashError } from '../../../store';
+import StatusBadge from '../../../components/StatusBadge.vue';
+import { can, flash, flashError } from '../../../store';
 
 /**
  * MediaWiki core versions: what exists, cutting a new one, removing one.
@@ -137,39 +139,49 @@ const remove = async () => {
 
 <template>
     <div class="space-y-4">
-        <header class="flex flex-wrap items-center gap-3">
-            <h1 class="text-lg font-semibold tracking-tight">Core versions</h1>
-            <button
-                v-if="data?.can?.create"
-                type="button"
-                class="ml-auto rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-                @click="openCreate"
-            >
+        <header class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <h1 class="text-xl font-semibold">Core versions</h1>
+                <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
+                    Each one is a whole MediaWiki tree on disk. Cutting a version reconstructs it from another —
+                    core at the ref you give, every extension and skin at the pin it already had.
+                </p>
+            </div>
+            <AppButton v-if="data?.can?.create" variant="primary" icon="plus" @click="openCreate">
                 Cut a new version
-            </button>
+            </AppButton>
         </header>
 
         <LoadState
             :loading="loading"
             :error="error"
             :empty="versions.length === 0"
-            empty-message="No core versions are registered. If versions/ already exists on disk, import it rather than cutting a new one."
+            empty-title="No core versions are registered"
+            empty-message="A core version is one MediaWiki tree — core, plus every extension and skin pinned to a ref. If versions/ already exists on disk, read the tree instead of cutting a new one."
+            :skeleton-rows="3"
             @retry="load"
         >
+            <template #empty-action>
+                <AppButton v-if="can('manage_repositories')" to="/deployments/import" variant="primary">
+                    Scan the tree
+                </AppButton>
+                <AppButton v-if="data?.can?.create" @click="openCreate">Cut a new version</AppButton>
+            </template>
+
             <div class="grid gap-4 lg:grid-cols-2">
                 <CardPanel v-for="version in versions" :key="version.id">
                     <div class="flex flex-wrap items-center gap-2">
-                        <RouterLink :to="`/deployments/versions/${version.id}`" class="text-base font-semibold underline">
+                        <RouterLink :to="`/deployments/versions/${version.id}`" class="link text-base font-semibold">
                             {{ version.version }}
                         </RouterLink>
-                        <StatusBadge :label="version.status_label" :classes="version.status_classes" />
-                        <span v-if="version.imported" class="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                        <StatusBadge :label="version.status_label" :tone="version.status_tone" />
+                        <span v-if="version.imported" class="rounded bg-sunken px-1.5 py-0.5 text-xs text-fg-muted">
                             imported
                         </span>
                         <button
                             v-if="version.can.undeploy && version.present"
                             type="button"
-                            class="ml-auto text-xs font-medium text-rose-700 underline"
+                            class="ms-auto inline-flex min-h-8 items-center rounded-md px-2 text-xs font-medium text-danger-text hover:bg-danger-surface"
                             @click="openRemove(version)"
                         >
                             Undeploy this version
@@ -178,25 +190,25 @@ const remove = async () => {
 
                     <dl class="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Tree</dt>
+                            <dt class="label-caps">Tree</dt>
                             <dd><code class="font-mono text-xs">{{ version.path }}</code></dd>
                         </div>
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">MW_VERSION on disk</dt>
+                            <dt class="label-caps">MW_VERSION on disk</dt>
                             <dd>
                                 <code v-if="version.core_version" class="font-mono text-xs">{{ version.core_version }}</code>
-                                <span v-else class="text-xs text-slate-400">not scanned</span>
+                                <span v-else class="text-xs text-fg-subtle">not scanned</span>
                             </dd>
                         </div>
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Contents</dt>
+                            <dt class="label-caps">Contents</dt>
                             <dd>
                                 {{ version.checkout_counts?.extension ?? 0 }} extensions,
                                 {{ version.checkout_counts?.skin ?? 0 }} skins
                             </dd>
                         </div>
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Cut from</dt>
+                            <dt class="label-caps">Cut from</dt>
                             <dd>{{ version.created_from ?? '—' }}</dd>
                         </div>
                     </dl>
@@ -213,22 +225,22 @@ const remove = async () => {
         >
             <div class="space-y-4">
                 <div class="grid gap-4 sm:grid-cols-2">
-                    <FormField label="New version" required :error="createErrors.version?.[0]" hint="Like 1.46.">
-                        <input
+                    <FormField label="New version" required :error="createErrors.version?.[0]" hint="Like 1.46." v-slot="field">
+                        <input v-bind="field"
                             v-model="form.version"
                             type="text"
                             placeholder="1.46"
-                            class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                            class="input-control block w-full font-mono"
                         />
                     </FormField>
 
                     <FormField
                         label="Reconstruct from"
                         hint="Every extension and skin present in this version is cloned into the new one."
-                    >
-                        <select
+                     v-slot="field">
+                        <select v-bind="field"
                             v-model="form.source_id"
-                            class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                            class="input-control block w-full"
                         >
                             <option :value="null">Nothing — core only</option>
                             <option v-for="version in versions" :key="version.id" :value="version.id">
@@ -244,25 +256,25 @@ const remove = async () => {
                     required
                     :error="createErrors.core_ref?.[0]"
                     :hint="suggestedRef ? `Leave blank to use ${suggestedRef}.` : 'Branch or tag to check core out at.'"
-                >
-                    <input
+                 v-slot="field">
+                    <input v-bind="field"
                         v-model="form.core_ref"
                         type="text"
                         :placeholder="suggestedRef || 'REL1_46'"
-                        class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full font-mono"
                     />
                 </FormField>
 
-                <p class="text-xs text-slate-500">
+                <p class="text-xs text-fg-subtle">
                     Each extension and skin is cloned at its own pin from the source version, so a repository
                     tracking REL1_45 there arrives here on the ref you have pinned for it.
                 </p>
 
                 <label class="flex items-start gap-2 text-sm">
-                    <input v-model="form.staging_only" type="checkbox" class="mt-1 rounded border-slate-300" />
+                    <input v-model="form.staging_only" type="checkbox" class="mt-1 size-4 rounded border-line-strong" />
                     <span>
                         <span class="font-medium">Build on staging only</span>
-                        <span class="block text-xs text-slate-500">
+                        <span class="block text-xs text-fg-subtle">
                             A brand new version serves no traffic yet: build it, check it, then roll it out as a
                             separate deployment.
                         </span>
@@ -270,7 +282,7 @@ const remove = async () => {
                 </label>
 
                 <label class="flex items-start gap-2 text-sm">
-                    <input v-model="form.l10n" type="checkbox" class="mt-1 rounded border-slate-300" />
+                    <input v-model="form.l10n" type="checkbox" class="mt-1 size-4 rounded border-line-strong" />
                     <span class="font-medium">Rebuild the l10n cache afterwards</span>
                 </label>
             </div>
@@ -278,14 +290,14 @@ const remove = async () => {
             <template #footer>
                 <button
                     type="button"
-                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    class="btn btn-secondary"
                     @click="showCreate = false"
                 >
                     Cancel
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    class="btn btn-primary"
                     :disabled="busy || !form.version"
                     @click="create"
                 >
@@ -304,10 +316,10 @@ const remove = async () => {
             <div class="space-y-4">
                 <p class="text-sm">
                     <code class="font-mono">rm -rf {{ removing.path }}</code> runs once per host.
-                    {{ removing.checkout_counts?.total ?? 0 }} checkout(s) go with it.
+                    {{ pluralise(removing.checkout_counts?.total ?? 0, 'checkout') }} go with it.
                 </p>
 
-                <p class="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                <p class="rounded-md bg-danger-surface px-3 py-2 text-sm text-danger-text">
                     This app does not check whether any wiki still points at {{ removing.version }} before
                     removing it — confirm that separately before continuing.
                 </p>
@@ -316,30 +328,30 @@ const remove = async () => {
                     :label="`Type ${removing.version} to confirm`"
                     required
                     :error="removeErrors.confirm_version?.[0]"
-                >
-                    <input
+                 v-slot="field">
+                    <input v-bind="field"
                         v-model="removeForm.confirm_version"
                         type="text"
-                        class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-rose-300"
+                        class="input-control block w-full border-danger-line font-mono"
                     />
                 </FormField>
 
                 <label class="flex items-start gap-2 text-sm">
-                    <input v-model="removeForm.rollout" type="checkbox" class="mt-1 rounded border-slate-300" />
+                    <input v-model="removeForm.rollout" type="checkbox" class="mt-1 size-4 rounded border-line-strong" />
                     <span>
                         <span class="font-medium">Depool each server first</span>
-                        <span class="block text-xs text-slate-500">Recommended when the version is still pooled.</span>
+                        <span class="block text-xs text-fg-subtle">Recommended when the version is still pooled.</span>
                     </span>
                 </label>
             </div>
 
             <template #footer>
-                <button type="button" class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300" @click="removing = null">
+                <button type="button" class="btn btn-secondary" @click="removing = null">
                     Cancel
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-50"
+                    class="btn btn-danger"
                     :disabled="busy || removeForm.confirm_version !== removing.version"
                     @click="remove"
                 >

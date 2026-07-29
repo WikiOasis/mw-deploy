@@ -1,5 +1,6 @@
 import { computed, reactive, readonly } from 'vue';
 
+import { alert, announce } from './announce';
 import { api, endpoint } from './api';
 
 /**
@@ -104,6 +105,10 @@ export function flash(message, kind = 'success') {
 
     state.flashes.push(entry);
 
+    // A toast is a visual channel only; on its own it is invisible to a screen
+    // reader. Errors interrupt, the rest wait their turn.
+    (kind === 'error' ? alert : announce)(message);
+
     // Errors stay until dismissed: a failed deploy action is not something to
     // notice out of the corner of your eye.
     if (kind !== 'error') {
@@ -118,7 +123,10 @@ export function flashError(error) {
         return;
     }
 
-    flash(error?.message ?? 'Something went wrong.', 'error');
+    // Not "something went wrong": if the request got far enough to fail, the
+    // server said why, and where it did not, the useful thing to say is which
+    // half of the console to suspect.
+    flash(error?.message ?? 'The console could not reach the server. Check your connection and try again.', 'error');
 }
 
 export function dismissFlash(id) {

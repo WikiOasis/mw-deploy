@@ -31,7 +31,7 @@ final class VersionResource extends JsonResource
             'staging_path' => $this->stagingPath(),
             'status' => $this->status->value,
             'status_label' => $this->status->label(),
-            'status_classes' => $this->status->badgeClasses(),
+            'status_tone' => $this->status->badgeTone(),
             'present' => $this->isPresent(),
             'imported' => $this->discovered_at !== null,
             'created_from' => $this->whenLoaded('createdFrom', fn () => $this->createdFrom?->version),

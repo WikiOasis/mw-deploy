@@ -150,13 +150,13 @@ watch(
             </div>
             <button
                 type="button"
-                class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                class="btn btn-primary"
                 :disabled="loadingTree || ref_.trim() === ''"
                 @click="goToRoot"
             >
                 Browse
             </button>
-            <code v-if="sha" class="font-mono text-xs text-slate-500">{{ sha.slice(0, 12) }}</code>
+            <code v-if="sha" class="font-mono text-xs text-fg-subtle">{{ sha.slice(0, 12) }}</code>
         </div>
 
         <div v-if="sha" class="flex flex-wrap items-center gap-2">
@@ -165,58 +165,58 @@ watch(
                     v-model="jumpTo"
                     type="text"
                     placeholder="Jump to a path…"
-                    class="block w-full rounded-md bg-white px-3 py-2 font-mono text-xs ring-1 ring-inset ring-slate-300"
+                    class="input-control block w-full font-mono"
                     @keydown.enter.prevent="jump"
                 />
             </div>
-            <button type="button" class="text-xs font-medium text-slate-600 underline" @click="jump">Go</button>
+            <button type="button" class="inline-flex min-h-8 items-center rounded-md px-2 text-xs font-medium text-fg-muted hover:bg-sunken hover:text-fg" @click="jump">Go</button>
         </div>
 
-        <nav v-if="sha" class="flex flex-wrap items-center gap-1 text-xs text-slate-500">
-            <button type="button" class="underline hover:text-slate-900" @click="goToRoot">root</button>
+        <nav v-if="sha" class="flex flex-wrap items-center gap-1 text-xs text-fg-subtle">
+            <button type="button" class="link-quiet" @click="goToRoot">root</button>
             <template v-for="crumb in crumbs" :key="crumb.path">
                 <span>/</span>
-                <button type="button" class="underline hover:text-slate-900" @click="goToCrumb(crumb.path)">
+                <button type="button" class="link-quiet" @click="goToCrumb(crumb.path)">
                     {{ crumb.name }}
                 </button>
             </template>
         </nav>
 
-        <p v-if="treeError" class="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+        <p v-if="treeError" class="rounded-md border border-danger-line bg-danger-surface px-3 py-2 text-xs text-danger-text">
             {{ treeError }}
         </p>
 
         <div v-if="sha" class="grid gap-4 lg:grid-cols-2">
-            <div class="rounded-md border border-slate-200">
-                <p v-if="loadingTree" class="px-3 py-2 text-xs text-slate-500">Loading…</p>
-                <ul v-else-if="entries.length === 0" class="px-3 py-2 text-xs text-slate-500">Empty directory.</ul>
-                <ul v-else class="max-h-96 divide-y divide-slate-100 overflow-auto text-sm">
+            <div class="rounded-md border border-line">
+                <p v-if="loadingTree" class="px-3 py-2 text-xs text-fg-subtle">Loading…</p>
+                <ul v-else-if="entries.length === 0" class="px-3 py-2 text-xs text-fg-subtle">Empty directory.</ul>
+                <ul v-else class="max-h-96 divide-y divide-line overflow-auto text-sm">
                     <li
                         v-for="entry in entries"
                         :key="entry.name"
-                        class="cursor-pointer px-3 py-1.5 hover:bg-slate-50"
-                        :class="selectedFile === entry.path ? 'bg-slate-100' : ''"
+                        class="cursor-pointer px-3 py-1.5 hover:bg-sunken"
+                        :class="selectedFile === entry.path ? 'bg-sunken' : ''"
                         @click="openEntry(entry)"
                     >
-                        <span class="mr-1">{{ entry.type === 'tree' ? '📁' : '📄' }}</span>
+                        <span class="me-1">{{ entry.type === 'tree' ? '📁' : '📄' }}</span>
                         <span class="font-mono text-xs">{{ entry.name }}</span>
-                        <span v-if="entry.size !== null && entry.type !== 'tree'" class="ml-2 text-xs text-slate-400">
+                        <span v-if="entry.size !== null && entry.type !== 'tree'" class="ms-2 text-xs text-fg-subtle">
                             {{ entry.size }} bytes
                         </span>
                     </li>
                 </ul>
             </div>
 
-            <div class="rounded-md border border-slate-200">
-                <div v-if="!selectedFile" class="px-3 py-2 text-xs text-slate-500">Select a file to view it.</div>
-                <div v-else-if="loadingBlob" class="px-3 py-2 text-xs text-slate-500">Loading…</div>
-                <p v-else-if="blobError" class="px-3 py-2 text-xs text-rose-700">{{ blobError }}</p>
+            <div class="rounded-md border border-line">
+                <div v-if="!selectedFile" class="px-3 py-2 text-xs text-fg-subtle">Select a file to view it.</div>
+                <div v-else-if="loadingBlob" class="px-3 py-2 text-xs text-fg-subtle">Loading…</div>
+                <p v-else-if="blobError" class="px-3 py-2 text-xs text-danger-text">{{ blobError }}</p>
                 <template v-else-if="blob">
-                    <div class="flex items-center justify-between border-b border-slate-100 px-3 py-1.5 text-xs text-slate-500">
+                    <div class="flex items-center justify-between border-b border-line px-3 py-1.5 text-xs text-fg-subtle">
                         <code class="font-mono">{{ selectedFile }}</code>
                         <span>{{ blob.size }} bytes{{ blob.truncated ? ' (truncated)' : '' }}</span>
                     </div>
-                    <p v-if="blob.binary" class="px-3 py-4 text-xs text-slate-500">
+                    <p v-if="blob.binary" class="px-3 py-4 text-xs text-fg-subtle">
                         Binary file — not shown.
                     </p>
                     <pre v-else class="max-h-96 overflow-auto px-3 py-2 text-xs whitespace-pre-wrap">{{ blob.content }}</pre>

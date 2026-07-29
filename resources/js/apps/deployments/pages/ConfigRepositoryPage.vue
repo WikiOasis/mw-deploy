@@ -6,7 +6,7 @@ import { ApiError, api, endpoint } from '../../../api';
 import CardPanel from '../../../components/CardPanel.vue';
 import FormField from '../../../components/FormField.vue';
 import LoadState from '../../../components/LoadState.vue';
-import StatusBadge from '../components/StatusBadge.vue';
+import StatusBadge from '../../../components/StatusBadge.vue';
 import { shortRef } from '../../../format';
 import { flash, flashError, refreshSession, session } from '../../../store';
 
@@ -88,10 +88,13 @@ const submit = async () => {
 <template>
     <div class="space-y-4">
         <header>
-            <h1 class="text-lg font-semibold tracking-tight">Config repository</h1>
-            <p class="mt-1 text-sm text-slate-500">
+            <h1 class="text-xl font-semibold">Config repository</h1>
+            <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
                 Wiki config sits outside the version trees — one checkout serves every core version — at
-                <code class="font-mono">{{ session.settings.config_dir }}</code> in the deploy root.
+                <code class="rounded-sm bg-sunken px-1 py-0.5 font-mono text-xs">{{
+                    session.settings.config_dir
+                }}</code>
+                in the deploy root.
             </p>
         </header>
 
@@ -100,37 +103,37 @@ const submit = async () => {
                 <CardPanel :title="data.repository ? 'Registered' : 'Not registered yet'">
                     <div v-if="data.repository" class="space-y-3 text-sm">
                         <div class="flex flex-wrap items-center gap-2">
-                            <RouterLink :to="`/deployments/repositories/${data.repository.id}`" class="font-medium underline">
+                            <RouterLink :to="`/deployments/repositories/${data.repository.id}`" class="link font-medium">
                                 {{ data.repository.name }}
                             </RouterLink>
-                            <span v-if="data.repository.imported" class="rounded bg-slate-100 px-1.5 py-0.5 text-xs">
+                            <span v-if="data.repository.imported" class="rounded bg-sunken px-1.5 py-0.5 text-xs">
                                 imported
                             </span>
                         </div>
                         <dl class="space-y-1">
                             <div>
-                                <dt class="text-xs tracking-wide text-slate-500 uppercase">Remote</dt>
+                                <dt class="label-caps">Remote</dt>
                                 <dd class="font-mono text-xs break-all">{{ data.repository.git_url }}</dd>
                             </div>
                             <div>
-                                <dt class="text-xs tracking-wide text-slate-500 uppercase">Default branch</dt>
+                                <dt class="label-caps">Default branch</dt>
                                 <dd class="font-mono text-xs">{{ data.repository.default_branch }}</dd>
                             </div>
                         </dl>
                         <ul class="space-y-1">
                             <li v-for="checkout in data.repository.checkouts ?? []" :key="checkout.id" class="flex gap-2">
-                                <StatusBadge :label="checkout.status_label" :classes="checkout.status_classes" />
+                                <StatusBadge :label="checkout.status_label" :tone="checkout.status_tone" />
                                 <code class="font-mono text-xs">{{ checkout.path }}</code>
-                                <code class="ml-auto font-mono text-xs">{{ checkout.resolved_ref }}</code>
+                                <code class="ms-auto font-mono text-xs">{{ checkout.resolved_ref }}</code>
                             </li>
                         </ul>
-                        <p class="text-xs text-slate-500">
+                        <p class="text-xs text-fg-subtle">
                             Deploying config is an ordinary deployment: pick it in the wizard like any other
                             repository. It needs <code class="font-mono">deploy.config</code>.
                         </p>
                     </div>
 
-                    <p v-else class="text-sm text-slate-500">
+                    <p v-else class="text-sm text-fg-subtle">
                         Nothing of type <code class="font-mono">config</code> is registered, so this app cannot
                         deploy wiki config yet.
                     </p>
@@ -140,36 +143,36 @@ const submit = async () => {
                     <div v-if="data.on_disk" class="space-y-2 text-sm">
                         <p>
                             <code class="font-mono text-xs">{{ data.on_disk.path }}</code>
-                            <span v-if="!data.on_disk.is_git" class="ml-2 text-rose-700">not a git checkout</span>
+                            <span v-if="!data.on_disk.is_git" class="ms-2 text-danger-text">not a git checkout</span>
                         </p>
                         <dl v-if="data.on_disk.is_git" class="space-y-1">
                             <div>
-                                <dt class="text-xs tracking-wide text-slate-500 uppercase">Remote</dt>
+                                <dt class="label-caps">Remote</dt>
                                 <dd class="font-mono text-xs break-all">{{ data.on_disk.git_url ?? '—' }}</dd>
                             </div>
                             <div>
-                                <dt class="text-xs tracking-wide text-slate-500 uppercase">Currently on</dt>
+                                <dt class="label-caps">Currently on</dt>
                                 <dd class="font-mono text-xs">
                                     {{ data.on_disk.ref ?? '—' }}
-                                    <span v-if="data.on_disk.commit" class="text-slate-400">
+                                    <span v-if="data.on_disk.commit" class="text-fg-subtle">
                                         ({{ shortRef(data.on_disk.commit) }})
                                     </span>
                                 </dd>
                             </div>
                         </dl>
-                        <p v-if="data.on_disk.blocker" class="text-xs text-rose-700">{{ data.on_disk.blocker }}</p>
-                        <p v-else class="text-xs text-emerald-700">
+                        <p v-if="data.on_disk.blocker" class="text-xs text-danger-text">{{ data.on_disk.blocker }}</p>
+                        <p v-else class="text-xs text-success-text">
                             This checkout can be adopted as-is — registering will not clone over it.
                         </p>
                     </div>
 
-                    <p v-else-if="data.scan_error" class="text-sm text-amber-800">
+                    <p v-else-if="data.scan_error" class="text-sm text-warning-text">
                         The tree could not be scanned, so this screen cannot tell you what is already there:
                         <span class="block font-mono text-xs">{{ data.scan_error }}</span>
                         Registering still works; it will clone onto staging.
                     </p>
 
-                    <p v-else class="text-sm text-slate-500">
+                    <p v-else class="text-sm text-fg-subtle">
                         There is no <code class="font-mono">{{ data.config_dir }}</code> directory in the tree yet.
                         Registering will clone one onto staging.
                     </p>
@@ -187,12 +190,12 @@ const submit = async () => {
                             required
                             :error="errors.git_url?.[0]"
                             hint="https:// or git@host:path. Checked for reachability before anything is written."
-                        >
-                            <input
+                         v-slot="field">
+                            <input v-bind="field"
                                 v-model="form.git_url"
                                 type="text"
                                 placeholder="https://github.com/wikioasis/mw-config.git"
-                                class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                                class="input-control block w-full font-mono"
                             />
                         </FormField>
 
@@ -201,12 +204,12 @@ const submit = async () => {
                                 label="Default branch"
                                 :error="errors.default_branch?.[0]"
                                 hint="Optional. Read from the checkout on disk, or the remote's HEAD."
-                            >
-                                <input
+                             v-slot="field">
+                                <input v-bind="field"
                                     v-model="form.default_branch"
                                     type="text"
                                     :placeholder="data.on_disk?.default_branch ?? 'master'"
-                                    class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                                    class="input-control block w-full font-mono"
                                 />
                             </FormField>
 
@@ -214,12 +217,12 @@ const submit = async () => {
                                 label="Registry name"
                                 :error="errors.name?.[0]"
                                 hint="Optional. Defaults to the repository name in the URL."
-                            >
-                                <input
+                             v-slot="field">
+                                <input v-bind="field"
                                     v-model="form.name"
                                     type="text"
                                     :placeholder="data.suggested_name"
-                                    class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                                    class="input-control block w-full"
                                 />
                             </FormField>
                         </div>
@@ -227,7 +230,7 @@ const submit = async () => {
                         <div class="flex flex-wrap items-center gap-3">
                             <button
                                 type="button"
-                                class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                                class="btn btn-primary disabled:opacity-40"
                                 :disabled="busy || !form.git_url"
                                 @click="submit"
                             >
@@ -239,7 +242,7 @@ const submit = async () => {
                                           : 'Register and clone onto staging'
                                 }}
                             </button>
-                            <p class="text-xs text-slate-500">
+                            <p class="text-xs text-fg-subtle">
                                 <template v-if="data.on_disk?.importable">
                                     The directory already exists, so this only writes registry rows.
                                 </template>

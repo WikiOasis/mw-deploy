@@ -80,9 +80,10 @@ const remove = async (scope) => {
 <template>
     <div class="space-y-4">
         <header>
-            <h1 class="text-lg font-semibold tracking-tight">Repository access</h1>
-            <p class="text-sm text-slate-600">
-                Who may act on which repository, within this app.
+            <h1 class="text-xl font-semibold">Repository access</h1>
+            <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
+                Who may act on which repository, within this app. A repository with no rows is governed only by its
+                deploy permission.
             </p>
         </header>
 
@@ -92,23 +93,23 @@ const remove = async (scope) => {
                 title="Per-repository scoping"
                 subtitle="A repository with no rows here is governed purely by its deploy.<type> permission. Adding the first row narrows it to the listed users and roles."
             >
-                <ul class="divide-y divide-slate-100 text-sm">
+                <ul class="divide-y divide-line text-sm">
                     <li v-for="scope in scopes" :key="scope.id" class="flex flex-wrap items-center gap-2 py-2">
                         <span class="font-medium">{{ scope.repository_name }}</span>
-                        <span class="text-slate-500">
+                        <span class="text-fg-subtle">
                             → {{ scope.user_name ?? scope.role_name ?? 'unknown' }}
                             <span class="text-xs">({{ scope.user_name ? 'user' : 'role' }})</span>
                         </span>
                         <button
                             type="button"
-                            class="ml-auto text-xs text-rose-700 underline disabled:opacity-50"
+                            class="ms-auto inline-flex min-h-8 items-center rounded-md px-2 text-xs text-danger-text hover:bg-danger-surface disabled:opacity-50"
                             :disabled="busy"
                             @click="remove(scope)"
                         >
                             Remove
                         </button>
                     </li>
-                    <li v-if="scopes.length === 0" class="py-2 text-slate-500">
+                    <li v-if="scopes.length === 0" class="py-2 text-fg-subtle">
                         No repository is scoped; the coarse permissions apply everywhere.
                     </li>
                 </ul>
@@ -116,7 +117,7 @@ const remove = async (scope) => {
                 <div class="mt-4 grid gap-3 sm:grid-cols-4">
                     <select
                         v-model="form.repository_id"
-                        class="rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control"
                     >
                         <option value="">Repository…</option>
                         <option v-for="repository in data.repositories" :key="repository.id" :value="repository.id">
@@ -125,21 +126,21 @@ const remove = async (scope) => {
                     </select>
                     <select
                         v-model="form.user_id"
-                        class="rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control"
                     >
                         <option value="">User…</option>
                         <option v-for="user in data.users" :key="user.id" :value="user.id">{{ user.email }}</option>
                     </select>
                     <select
                         v-model="form.role_id"
-                        class="rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control"
                     >
                         <option value="">…or role</option>
                         <option v-for="role in data.roles" :key="role.id" :value="role.id">{{ role.name }}</option>
                     </select>
                     <button
                         type="button"
-                        class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                        class="btn btn-primary"
                         :disabled="busy || !form.repository_id"
                         @click="add"
                     >
