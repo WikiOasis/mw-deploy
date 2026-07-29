@@ -10,27 +10,23 @@ use App\Events\DeploymentProgressed;
 use App\Jobs\RunDeployment;
 use App\Models\Deployment;
 use App\Models\User;
-use Illuminate\Bus\UniqueLock;
 use Illuminate\Support\Facades\Cache;
 
 /**
  * The last resort for a deployment the pipeline itself will never resolve: the
  * worker that was running it is gone — crashed, OOM-killed, the process
- * restarted mid-job — and RunDeployment's fleet-wide ShouldBeUnique lock
- * outlives it. That lock is acquired at dispatch time and only released when a
- * worker actually finishes processing the job, so a worker that dies without
- * going through Laravel's normal completion path leaves it held indefinitely:
- * every deployment created afterwards silently fails to even reach the queue
- * (PendingDispatch::shouldDispatch() just returns false, no error, no job row)
- * and sits at Pending forever. See docs/OPERATIONS.md, "The worker died
- * mid-deployment".
+ * restarted mid-job — and RunDeployment's staging-tree lock outlives it. That
+ * lock is released by a `finally` block inside the job, which a worker that
+ * dies mid-run never reaches, so it sits held until its TTL lapses. See
+ * docs/OPERATIONS.md, "The worker died mid-deployment".
  *
  * This does the two things a healthy worker would eventually have done itself:
- * marks the deployment failed and releases the lock. It does not coordinate
- * with anything still running — by the time this is worth calling, there is
- * nothing left to coordinate with. The abandoned queue job row is left alone:
- * once the lock is free, the worker's own retry_after handling reclaims and
- * fails it out on its next poll without any help from here.
+ * marks the deployment failed and releases the lock, so whatever is already
+ * queued behind it can run on the worker's next poll instead of waiting out
+ * the TTL. `RunDeployment::failed()` releases the same lock on its own
+ * automated failure path (a crash reclaimed by the queue's retry_after); this
+ * is only needed when nothing ever calls that — the deployment stays `running`
+ * forever with no job left to fail.
  */
 final class ForceFailDeployment
 {
@@ -51,10 +47,11 @@ final class ForceFailDeployment
             ->whereIn('status', [StepStatus::Pending->value, StepStatus::Running->value])
             ->update(['status' => StepStatus::Skipped->value, 'finished_at' => now()]);
 
-        // The one operation that actually unblocks every later deployment: without
-        // this, the fleet-wide lock stays held and nothing queued afterwards ever
-        // reaches the jobs table, no matter how many times the worker restarts.
-        Cache::lock(UniqueLock::getKey(new RunDeployment($deployment->getKey())))->forceRelease();
+        // The one operation that actually unblocks whatever is queued behind
+        // this deployment: without this, the staging-tree lock stays held and
+        // the next job in line keeps refusing to run, no matter how many times
+        // the worker restarts.
+        Cache::lock(RunDeployment::LOCK_KEY)->forceRelease();
 
         DeploymentProgressed::dispatch($deployment);
     }

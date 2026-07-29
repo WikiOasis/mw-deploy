@@ -80,6 +80,14 @@ Note the module exports `/srv/mediawiki` (production on staging), not
 `rsync-local` staging→production **on the staging host** → appservers pull that
 production tree. The staging host's own production copy is the canonical artefact.
 
+Each checkout's `.git` directory syncs along with it, all the way to the
+appservers — unlike the original tool, which excluded `.git` and left appservers
+with whatever git metadata happened to be there from the last time that host was
+provisioned. `git status`/`git log` on an appserver, and MediaWiki's own
+Special:Version, now report the commit actually deployed. The cost is the first
+sync after upgrading being as large as a fresh clone (transferring history the
+appserver never had); every sync after that is an ordinary rsync delta.
+
 Using NFS instead is a config change only:
 
 ```dotenv
@@ -182,10 +190,13 @@ always present (`resources/js/deployment-monitor.js`).
 
 ### Only ever run one worker
 
-`RunDeployment` is `ShouldBeUnique` on a fleet-wide key, so a second worker cannot
-run a second deployment concurrently — but the lock lives in the cache store, so
-`CACHE_STORE` must be shared (`database` or `redis`, never `array`/`file` across
-hosts).
+`RunDeployment` takes a fleet-wide `Cache::lock('mwdeploy-staging-tree', …)`
+around each run, acquired and released inside the job itself, so a second worker
+cannot run a second deployment concurrently against the same staging tree — but
+the lock lives in the cache store, so `CACHE_STORE` must be shared (`database` or
+`redis`, never `array`/`file` across hosts). Deployments created while another is
+running are not rejected: they queue normally and this single worker runs them
+one after another as it becomes free.
 
 ## Disk, and the cost of a core version
 
@@ -355,8 +366,10 @@ with more ceremony around it.
   `MWDEPLOY_DECISION_TIMEOUT_DEFAULT` (default: abort and roll back).
 - **The worker died mid-deployment.** The deployment stays `running` with no
   progress. Its steps are already in the database, so the log survives; mark it
-  failed and roll back from history. `ShouldBeUnique`'s lock expires after 6 hours,
-  or clear it with `php artisan cache:forget` on the unique key.
+  failed and roll back from history. Force-failing it (or the queue's own
+  `retry_after` reclaiming the crashed job) also releases the staging-tree lock,
+  so whatever is queued behind it can run immediately instead of waiting out the
+  6-hour TTL — see "Only ever run one worker" above.
 - **A rollback failed its own canary.** By design nothing further is automatic.
   The deployment's failure reason says "Manual intervention required" — the
   previous ref is in `repo_state_snapshots` for the original deployment if you need

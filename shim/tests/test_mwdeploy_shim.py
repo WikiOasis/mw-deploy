@@ -97,8 +97,11 @@ class RsyncArgvTest(unittest.TestCase):
         for flag in ("--recursive", "--links", "--delete", "--delete-after"):
             self.assertIn(flag, argv)
 
-        # .git must never reach production.
-        self.assertIn(".git", argv)
+        # .git must reach production and the appservers now, so `git
+        # status`/Special:Version reflect the commit actually deployed rather
+        # than whatever was on disk when that host's copy was first cloned.
+        self.assertNotIn(".git", argv)
+        self.assertIn(".gitignore", argv)
         self.assertEqual(["/srv/staging/", "/srv/prod/"], argv[-2:])
 
     def test_provision_adds_the_first_run_flags(self):
