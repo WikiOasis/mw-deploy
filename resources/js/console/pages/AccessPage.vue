@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 
 import { ApiError, api, endpoint } from '../../api';
+import AppButton from '../../components/AppButton.vue';
 import CardPanel from '../../components/CardPanel.vue';
 import FormField from '../../components/FormField.vue';
 import LoadState from '../../components/LoadState.vue';
@@ -141,20 +142,15 @@ const saveRole = async () => {
 
 <template>
     <div class="space-y-4">
-        <header class="flex flex-wrap items-center gap-3">
+        <header class="flex flex-wrap items-end justify-between gap-4">
             <div>
-                <h1 class="text-lg font-semibold tracking-tight">Users and access</h1>
-                <p class="text-sm text-slate-600">
-                    Accounts hold roles, roles hold permissions, and every permission belongs to one app.
+                <h1 class="text-xl font-semibold">Users and access</h1>
+                <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
+                    Accounts hold roles, roles hold permissions, and every permission belongs to one app. This is
+                    how the apps on someone's launcher are decided.
                 </p>
             </div>
-            <button
-                type="button"
-                class="ml-auto rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-                @click="showCreate = true"
-            >
-                Create an account
-            </button>
+            <AppButton variant="primary" icon="plus" @click="showCreate = true">Create an account</AppButton>
         </header>
 
         <LoadState :loading="loading" :error="error" @retry="load">
@@ -165,36 +161,36 @@ const saveRole = async () => {
                     flush
                 >
                     <table class="w-full text-sm">
-                        <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
+                        <thead class="label-caps border-b border-line text-start">
                             <tr>
                                 <th class="px-5 py-2">Account</th>
                                 <th class="px-5 py-2">2FA</th>
                                 <th class="px-5 py-2">Roles</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100">
+                        <tbody class="divide-y divide-line">
                             <tr v-for="user in users" :key="user.id" class="align-top">
                                 <td class="px-5 py-2">
                                     <p class="font-medium">{{ user.name }}</p>
-                                    <p class="text-xs text-slate-500">{{ user.email }}</p>
+                                    <p class="text-xs text-fg-subtle">{{ user.email }}</p>
                                 </td>
                                 <td class="px-5 py-2">
-                                    <span v-if="user.two_factor_enabled" class="text-xs text-emerald-700">enrolled</span>
-                                    <span v-else-if="user.two_factor_required" class="text-xs text-rose-700">
+                                    <span v-if="user.two_factor_enabled" class="text-xs text-success-text">enrolled</span>
+                                    <span v-else-if="user.two_factor_required" class="text-xs text-danger-text">
                                         required, not enrolled
                                     </span>
-                                    <span v-else class="text-xs text-slate-400">not required</span>
+                                    <span v-else class="text-xs text-fg-subtle">not required</span>
                                 </td>
                                 <td class="px-5 py-2">
                                     <div class="flex flex-wrap gap-2">
                                         <label
                                             v-for="role in roles"
                                             :key="role.id"
-                                            class="flex items-center gap-1.5 rounded border border-slate-200 px-2 py-0.5 text-xs"
+                                            class="flex items-center gap-1.5 rounded border border-line px-2 py-0.5 text-xs"
                                         >
                                             <input
                                                 type="checkbox"
-                                                class="rounded border-slate-300"
+                                                class="size-4 rounded border-line-strong"
                                                 :checked="user.role_ids.includes(role.id)"
                                                 :disabled="busy"
                                                 @change="toggleRole(user, role.id)"
@@ -216,7 +212,7 @@ const saveRole = async () => {
                         <button
                             v-if="can('manage_roles')"
                             type="button"
-                            class="text-slate-600 underline hover:text-slate-900"
+                            class="link-quiet"
                             @click="openRole(null)"
                         >
                             New role
@@ -224,16 +220,16 @@ const saveRole = async () => {
                     </template>
 
                     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <div v-for="role in roles" :key="role.id" class="rounded-md border border-slate-200 p-3">
+                        <div v-for="role in roles" :key="role.id" class="rounded-md border border-line p-3">
                             <div class="flex items-start gap-2">
                                 <div>
                                     <p class="text-sm font-medium">{{ role.name }}</p>
-                                    <p v-if="role.description" class="text-xs text-slate-500">{{ role.description }}</p>
+                                    <p v-if="role.description" class="text-xs text-fg-subtle">{{ role.description }}</p>
                                 </div>
                                 <button
                                     v-if="can('manage_roles')"
                                     type="button"
-                                    class="ml-auto text-xs text-slate-600 underline hover:text-slate-900"
+                                    class="ms-auto inline-flex min-h-8 items-center rounded-md px-2 text-xs text-fg-muted hover:bg-sunken hover:text-fg"
                                     @click="openRole(role)"
                                 >
                                     Edit
@@ -244,22 +240,22 @@ const saveRole = async () => {
                                 <span
                                     v-for="app in role.apps"
                                     :key="app"
-                                    class="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700"
+                                    class="rounded bg-sunken px-1.5 py-0.5 text-xs font-medium text-fg"
                                 >
                                     {{ groupLabel(app) }}
                                 </span>
-                                <span v-if="role.apps.length === 0" class="text-xs text-slate-400">opens no apps</span>
+                                <span v-if="role.apps.length === 0" class="text-xs text-fg-subtle">opens no apps</span>
                             </div>
 
                             <ul class="mt-2 space-y-0.5">
                                 <li
                                     v-for="permission in role.permissions"
                                     :key="permission"
-                                    class="font-mono text-xs text-slate-600"
+                                    class="font-mono text-xs text-fg-muted"
                                 >
                                     {{ permission }}
                                 </li>
-                                <li v-if="role.permissions.length === 0" class="text-xs text-slate-400">
+                                <li v-if="role.permissions.length === 0" class="text-xs text-fg-subtle">
                                     grants nothing
                                 </li>
                             </ul>
@@ -276,39 +272,39 @@ const saveRole = async () => {
             @close="showCreate = false"
         >
             <div class="space-y-4">
-                <FormField label="Name" required :error="errors.name?.[0]">
-                    <input
+                <FormField label="Name" required :error="errors.name?.[0]" v-slot="field">
+                    <input v-bind="field"
                         v-model="form.name"
                         type="text"
-                        class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full"
                     />
                 </FormField>
 
-                <FormField label="Email" required :error="errors.email?.[0]">
-                    <input
+                <FormField label="Email" required :error="errors.email?.[0]" v-slot="field">
+                    <input v-bind="field"
                         v-model="form.email"
                         type="email"
-                        class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full"
                     />
                 </FormField>
 
-                <FormField label="Password" required :error="errors.password?.[0]" hint="At least 12 characters.">
-                    <input
+                <FormField label="Password" required :error="errors.password?.[0]" hint="At least 12 characters." v-slot="field">
+                    <input v-bind="field"
                         v-model="form.password"
                         type="password"
-                        class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full"
                     />
                 </FormField>
 
                 <div>
-                    <p class="text-sm font-medium text-slate-700">Roles</p>
+                    <p class="text-sm font-medium text-fg">Roles</p>
                     <div class="mt-1 flex flex-wrap gap-2">
                         <label
                             v-for="role in roles"
                             :key="role.id"
-                            class="flex items-center gap-1.5 rounded border border-slate-200 px-2 py-1 text-sm"
+                            class="flex items-center gap-1.5 rounded border border-line px-2 py-1 text-sm"
                         >
-                            <input v-model="form.roles" type="checkbox" class="rounded border-slate-300" :value="role.id" />
+                            <input v-model="form.roles" type="checkbox" class="size-4 rounded border-line-strong" :value="role.id" />
                             {{ role.name }}
                         </label>
                     </div>
@@ -316,12 +312,12 @@ const saveRole = async () => {
             </div>
 
             <template #footer>
-                <button type="button" class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300" @click="showCreate = false">
+                <button type="button" class="btn btn-secondary" @click="showCreate = false">
                     Cancel
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    class="btn btn-primary"
                     :disabled="busy"
                     @click="create"
                 >
@@ -346,27 +342,27 @@ const saveRole = async () => {
                     required
                     :error="errors.name?.[0]"
                     hint="Lowercase, digits and dashes — roles are named in scripts and logs."
-                >
-                    <input
+                 v-slot="field">
+                    <input v-bind="field"
                         v-model="roleForm.name"
                         type="text"
-                        class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full"
                     />
                 </FormField>
 
-                <FormField label="Description" :error="errors.description?.[0]">
-                    <input
+                <FormField label="Description" :error="errors.description?.[0]" v-slot="field">
+                    <input v-bind="field"
                         v-model="roleForm.description"
                         type="text"
-                        class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                        class="input-control block w-full"
                     />
                 </FormField>
 
-                <p v-if="errors.permissions" class="text-xs text-rose-700">{{ errors.permissions[0] }}</p>
+                <p v-if="errors.permissions" class="text-xs text-danger-text">{{ errors.permissions[0] }}</p>
 
-                <div v-for="group in groups" :key="group.key" class="rounded-md border border-slate-200 p-3">
+                <div v-for="group in groups" :key="group.key" class="rounded-md border border-line p-3">
                     <p class="text-sm font-medium">{{ group.label }}</p>
-                    <p class="text-xs text-slate-500">{{ group.summary }}</p>
+                    <p class="text-xs text-fg-subtle">{{ group.summary }}</p>
 
                     <div class="mt-2 space-y-1">
                         <label
@@ -377,17 +373,17 @@ const saveRole = async () => {
                             <input
                                 v-model="roleForm.permissions"
                                 type="checkbox"
-                                class="mt-1 rounded border-slate-300"
+                                class="mt-1 size-4 rounded border-line-strong"
                                 :value="permission.name"
                             />
                             <span>
                                 <span class="font-mono text-xs">{{ permission.name }}</span>
                                 <span
                                     v-if="permission.grants_access"
-                                    class="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-900"
+                                    class="ms-1 rounded-sm border border-info-line bg-info-surface px-1.5 py-0.5 text-2xs font-medium text-info-text"
                                     >opens the app</span
                                 >
-                                <span class="block text-xs text-slate-500">{{ permission.description }}</span>
+                                <span class="block text-xs text-fg-subtle">{{ permission.description }}</span>
                             </span>
                         </label>
                     </div>
@@ -395,12 +391,12 @@ const saveRole = async () => {
             </div>
 
             <template #footer>
-                <button type="button" class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300" @click="showRole = false">
+                <button type="button" class="btn btn-secondary" @click="showRole = false">
                     Cancel
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    class="btn btn-primary"
                     :disabled="busy"
                     @click="saveRole"
                 >

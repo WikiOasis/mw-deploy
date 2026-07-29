@@ -17,13 +17,13 @@ import { can, registryIsEmpty } from '../../../store';
 <template>
     <div
         v-if="registryIsEmpty && can('manage_repositories')"
-        class="mb-6 rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900"
+        class="mb-6 rounded-md border border-info-line bg-info-surface px-4 py-3 text-sm text-info-text"
     >
         <p class="font-medium">Nothing is registered yet.</p>
         <p class="mt-1 text-xs">
             If this farm already has MediaWiki on disk, the app can read the tree and fill the registry in from
             it — every version, extension, skin and their current refs.
-            <RouterLink to="/deployments/import" class="font-medium underline">Scan the tree</RouterLink>.
+            <RouterLink to="/deployments/import" class="link font-medium">Scan the tree</RouterLink>.
         </p>
     </div>
 </template>

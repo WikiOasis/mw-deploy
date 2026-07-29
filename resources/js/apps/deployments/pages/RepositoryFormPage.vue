@@ -148,8 +148,8 @@ const submit = async () => {
 <template>
     <div class="space-y-4">
         <header class="flex flex-wrap items-baseline gap-3">
-            <RouterLink to="/deployments/repositories" class="text-sm text-slate-500 underline">Repositories</RouterLink>
-            <h1 class="text-lg font-semibold tracking-tight">
+            <RouterLink to="/deployments/repositories" class="link-quiet text-sm">Repositories</RouterLink>
+            <h1 class="text-xl font-semibold">
                 {{ isEdit ? `Edit ${existing?.name ?? ''}` : 'Register a repository' }}
             </h1>
         </header>
@@ -164,20 +164,20 @@ const submit = async () => {
                                 required
                                 :error="errors.name?.[0]"
                                 hint="Becomes the directory name, e.g. Echo → extensions/Echo."
-                            >
-                                <input
+                             v-slot="field">
+                                <input v-bind="field"
                                     v-model="form.name"
                                     type="text"
                                     :disabled="isEdit"
-                                    class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300 disabled:bg-slate-50"
+                                    class="input-control block w-full disabled:bg-sunken"
                                 />
                             </FormField>
 
-                            <FormField label="Type" required :error="errors.type?.[0]">
-                                <select
+                            <FormField label="Type" required :error="errors.type?.[0]" v-slot="field">
+                                <select v-bind="field"
                                     v-model="form.type"
                                     :disabled="isEdit"
-                                    class="block w-full rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300 disabled:bg-slate-50"
+                                    class="input-control block w-full disabled:bg-sunken"
                                 >
                                     <option
                                         v-for="type in session.reference.repository_types"
@@ -195,29 +195,29 @@ const submit = async () => {
                             required
                             :error="errors.git_url?.[0]"
                             hint="https:// or git@host:path. Reachability is checked before anything is written."
-                        >
-                            <input
+                         v-slot="field">
+                            <input v-bind="field"
                                 v-model="form.git_url"
                                 type="text"
                                 placeholder="https://github.com/wikimedia/mediawiki-extensions-Echo.git"
-                                class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                                class="input-control block w-full font-mono"
                             />
                         </FormField>
 
                         <div class="grid gap-4 sm:grid-cols-2">
-                            <FormField label="Default branch" required :error="errors.default_branch?.[0]">
-                                <input
+                            <FormField label="Default branch" required :error="errors.default_branch?.[0]" v-slot="field">
+                                <input v-bind="field"
                                     v-model="form.default_branch"
                                     type="text"
-                                    class="block w-full rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300"
+                                    class="input-control block w-full font-mono"
                                 />
                             </FormField>
 
                             <label class="flex items-start gap-2 pt-6 text-sm">
-                                <input v-model="form.in_use" type="checkbox" class="mt-1 rounded border-slate-300" />
+                                <input v-model="form.in_use" type="checkbox" class="mt-1 size-4 rounded border-line-strong" />
                                 <span>
                                     <span class="font-medium">In use by the farm</span>
-                                    <span class="block text-xs text-slate-500">
+                                    <span class="block text-xs text-fg-subtle">
                                         Informational: drives the "in use" filter.
                                     </span>
                                 </span>
@@ -225,12 +225,12 @@ const submit = async () => {
                         </div>
 
                         <div v-if="!isEdit && needsVersions">
-                            <p class="text-sm font-medium text-slate-700">Add to these core versions</p>
-                            <p class="text-xs text-slate-500">
+                            <p class="text-sm font-medium text-fg">Add to these core versions</p>
+                            <p class="text-xs text-fg-subtle">
                                 Each checkout gets its own pin, which is what lets one repository track REL1_45 under
                                 1.45 and REL1_46 under 1.46.
                             </p>
-                            <p v-if="errors.versions?.[0]" class="mt-1 text-xs text-rose-600">
+                            <p v-if="errors.versions?.[0]" class="mt-1 text-xs text-danger-text">
                                 {{ errors.versions[0] }}
                             </p>
 
@@ -238,22 +238,22 @@ const submit = async () => {
                                 <li
                                     v-for="version in versions"
                                     :key="version.id"
-                                    class="rounded border border-slate-200 p-2"
+                                    class="rounded border border-line p-2"
                                 >
                                     <label class="flex items-center gap-2 text-sm">
                                         <input
                                             type="checkbox"
-                                            class="rounded border-slate-300"
+                                            class="size-4 rounded border-line-strong"
                                             :checked="form.versions.includes(version.id)"
                                             @change="toggleVersion(version)"
                                         />
                                         <span class="font-medium">{{ version.version }}</span>
                                     </label>
 
-                                    <div v-if="form.versions.includes(version.id)" class="mt-2 grid gap-2 pl-6 sm:grid-cols-2">
+                                    <div v-if="form.versions.includes(version.id)" class="mt-2 grid gap-2 ps-6 sm:grid-cols-2">
                                         <select
                                             v-model="form.refs[version.id].ref_mode"
-                                            class="rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300"
+                                            class="input-control"
                                         >
                                             <option value="pinned">Pinned to a ref</option>
                                             <option value="default_branch">Repository's default branch</option>
@@ -263,11 +263,11 @@ const submit = async () => {
                                             v-model="form.refs[version.id].ref"
                                             type="text"
                                             :disabled="form.refs[version.id].ref_mode !== 'pinned'"
-                                            class="rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300 disabled:bg-slate-50"
+                                            class="input-control font-mono"
                                         />
                                     </div>
                                 </li>
-                                <li v-if="versions.length === 0" class="text-sm text-slate-500">
+                                <li v-if="versions.length === 0" class="text-sm text-fg-subtle">
                                     No core versions are registered yet. Register one, or import the tree.
                                 </li>
                             </ul>
@@ -276,13 +276,13 @@ const submit = async () => {
                         <div class="flex flex-wrap items-center gap-3">
                             <button
                                 type="button"
-                                class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                                class="btn btn-primary disabled:opacity-40"
                                 :disabled="busy || !form.name || !form.git_url"
                                 @click="submit"
                             >
                                 {{ busy ? 'Working…' : isEdit ? 'Save changes' : 'Register and clone' }}
                             </button>
-                            <p v-if="!isEdit" class="text-xs text-slate-500">
+                            <p v-if="!isEdit" class="text-xs text-fg-subtle">
                                 Cloning lands on staging only. Rolling that deployment back removes the checkouts
                                 again.
                             </p>
@@ -291,10 +291,10 @@ const submit = async () => {
                 </CardPanel>
 
                 <CardPanel title="Notes">
-                    <ul class="space-y-2 text-xs text-slate-600">
+                    <ul class="space-y-2 text-xs text-fg-muted">
                         <li v-if="form.type === 'config'">
                             For the config repository there is a
-                            <RouterLink to="/deployments/repositories/config" class="underline">one-field screen</RouterLink>
+                            <RouterLink to="/deployments/repositories/config" class="link">one-field screen</RouterLink>
                             that also adopts an existing <code class="font-mono">{{ session.settings.config_dir }}</code>
                             checkout instead of cloning over it.
                         </li>
@@ -303,7 +303,7 @@ const submit = async () => {
                             not from this form.
                         </li>
                         <li>
-                            Already on disk? <RouterLink to="/deployments/import" class="underline">Import from disk</RouterLink>
+                            Already on disk? <RouterLink to="/deployments/import" class="link">Import from disk</RouterLink>
                             adopts what is there instead of cloning it again.
                         </li>
                         <li v-if="isEdit">

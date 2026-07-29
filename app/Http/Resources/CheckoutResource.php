@@ -35,7 +35,7 @@ final class CheckoutResource extends JsonResource
 
             'status' => $this->status->value,
             'status_label' => $this->status->label(),
-            'status_classes' => $this->status->badgeClasses(),
+            'status_tone' => $this->status->badgeTone(),
             'present' => $this->isPresent(),
 
             'ref_mode' => $this->ref_mode->value,

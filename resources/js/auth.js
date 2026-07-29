@@ -6,6 +6,7 @@
  * are plain HTML with a few kilobytes of vanilla JavaScript — and every one of them
  * still works with this file absent.
  */
+import { wireThemeSwitch } from './theme';
 
 /**
  * Two-panel toggles, used by the TOTP challenge to swap an authenticator code for
@@ -84,4 +85,5 @@ async function loadTwoFactorQrCode() {
 }
 
 wireToggles();
+wireThemeSwitch();
 loadTwoFactorQrCode();

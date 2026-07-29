@@ -3,12 +3,13 @@ import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
 import { ApiError, api, endpoint } from '../../../api';
+import AppButton from '../../../components/AppButton.vue';
 import CardPanel from '../../../components/CardPanel.vue';
 import LoadState from '../../../components/LoadState.vue';
 import ModalDialog from '../../../components/ModalDialog.vue';
-import StatusBadge from '../components/StatusBadge.vue';
+import StatusBadge from '../../../components/StatusBadge.vue';
 import StepList from '../components/StepList.vue';
-import { dateTime, duration } from '../../../format';
+import { dateTime, duration, pluralise } from '../../../format';
 import { useDeploymentState } from '../../../live';
 import { flash, flashError } from '../../../store';
 
@@ -64,7 +65,7 @@ const deployment = computed(() => record.value?.data ?? null);
 const status = computed(() => ({
     value: state.value?.status ?? deployment.value?.status,
     label: state.value?.status_label ?? deployment.value?.status_label,
-    classes: state.value?.status_classes ?? deployment.value?.status_classes,
+    tone: state.value?.status_tone ?? deployment.value?.status_tone,
 }));
 
 const awaitingDecision = computed(
@@ -182,58 +183,77 @@ const forceFail = async () => {
 <template>
     <LoadState :loading="loading" :error="error" @retry="load">
         <div v-if="deployment" class="space-y-6">
-            <header class="flex flex-wrap items-center gap-3">
-                <h1 class="text-lg font-semibold tracking-tight">Deployment #{{ deployment.id }}</h1>
-                <StatusBadge :label="status.label" :classes="status.classes" />
-                <StatusBadge :label="deployment.intent_label" :classes="deployment.intent_classes" />
-                <span v-if="!finished" class="text-xs" :class="live ? 'text-emerald-700' : 'text-slate-500'">
-                    {{ live ? 'live' : 'polling' }}
-                </span>
+            <header>
+                <AppButton to="/deployments/history" variant="ghost" icon="arrow-left" class="-ms-3 mb-2">
+                    History
+                </AppButton>
 
-                <div class="ml-auto flex items-center gap-2 text-sm">
-                    <RouterLink
-                        v-if="deployment.rolls_back_id"
-                        :to="`/deployments/${deployment.rolls_back_id}`"
-                        class="text-slate-600 underline"
-                    >
-                        Rolls back #{{ deployment.rolls_back_id }}
-                    </RouterLink>
-                    <button
-                        v-if="deployment.can.cancel"
-                        type="button"
-                        class="rounded-md px-3 py-1.5 font-medium text-slate-700 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
-                        :disabled="busy"
-                        @click="showCancel = true"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        v-if="deployment.can.abort && !awaitingDecision"
-                        type="button"
-                        class="rounded-md bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-500 disabled:opacity-50"
-                        :disabled="busy"
-                        @click="showAbort = true"
-                    >
-                        Abort
-                    </button>
-                    <button
-                        v-if="deployment.can.rollback"
-                        type="button"
-                        class="rounded-md bg-amber-600 px-3 py-1.5 font-medium text-white hover:bg-amber-500 disabled:opacity-50"
-                        :disabled="busy"
-                        @click="showRollback = true"
-                    >
-                        Roll back
-                    </button>
-                    <button
-                        v-if="deployment.can.force_fail"
-                        type="button"
-                        class="rounded-md px-3 py-1.5 font-medium text-rose-700 ring-1 ring-inset ring-rose-300 hover:bg-rose-50 disabled:opacity-50"
-                        :disabled="busy"
-                        @click="showForceFail = true"
-                    >
-                        Force fail
-                    </button>
+                <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <h1 class="numeric text-xl font-semibold">Deployment #{{ deployment.id }}</h1>
+                        <StatusBadge :label="status.label" :tone="status.tone" />
+                        <StatusBadge :label="deployment.intent_label" :tone="deployment.intent_tone" />
+                        <!-- Whether this page is being pushed to or polled. A dot on
+                             its own would be colour-only, so the word stays with it. -->
+                        <span
+                            v-if="!finished"
+                            class="inline-flex items-center gap-1.5 text-xs"
+                            :class="live ? 'text-success-text' : 'text-fg-subtle'"
+                        >
+                            <span
+                                class="size-1.5 rounded-full"
+                                :class="live ? 'bg-success-solid motion-safe:animate-pulse' : 'bg-fg-faint'"
+                                aria-hidden="true"
+                            />
+                            {{ live ? 'Live' : 'Polling' }}
+                        </span>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                        <RouterLink
+                            v-if="deployment.rolls_back_id"
+                            :to="`/deployments/${deployment.rolls_back_id}`"
+                            class="link-quiet"
+                        >
+                            Rolls back #{{ deployment.rolls_back_id }}
+                        </RouterLink>
+                        <button
+                            v-if="deployment.can.cancel"
+                            type="button"
+                            class="btn btn-secondary disabled:opacity-50"
+                            :disabled="busy"
+                            @click="showCancel = true"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            v-if="deployment.can.abort && !awaitingDecision"
+                            type="button"
+                            class="btn btn-danger"
+                            :disabled="busy"
+                            @click="showAbort = true"
+                        >
+                            Abort
+                        </button>
+                        <button
+                            v-if="deployment.can.rollback"
+                            type="button"
+                            class="btn btn-secondary"
+                            :disabled="busy"
+                            @click="showRollback = true"
+                        >
+                            Roll back
+                        </button>
+                        <button
+                            v-if="deployment.can.force_fail"
+                            type="button"
+                            class="btn btn-danger-quiet"
+                            :disabled="busy"
+                            @click="showForceFail = true"
+                        >
+                            Force fail
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -248,12 +268,12 @@ const forceFail = async () => {
                 <div class="space-y-3">
                     <dl v-if="Object.keys(pendingContext).length > 0" class="grid gap-1 text-sm sm:grid-cols-2">
                         <div v-for="(value, key) in pendingContext" :key="key" class="flex gap-2">
-                            <dt class="text-slate-500">{{ key }}</dt>
+                            <dt class="text-fg-subtle">{{ key }}</dt>
                             <dd class="font-mono text-xs">{{ value }}</dd>
                         </div>
                     </dl>
 
-                    <p v-if="!deployment.can.decide" class="text-sm text-slate-500">
+                    <p v-if="!deployment.can.decide" class="text-sm text-fg-subtle">
                         You do not have <code class="font-mono">deploy.decide</code>, so you cannot answer this.
                         It will apply <code class="font-mono">{{ deployment.options.force ? 'continue' : 'the configured default' }}</code>
                         if nobody does.
@@ -264,19 +284,19 @@ const forceFail = async () => {
                             v-for="option in deployment.decisions"
                             :key="option.value"
                             type="button"
-                            class="rounded-md border px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
+                            class="rounded-md border px-3 py-2 text-start text-sm hover:bg-sunken disabled:opacity-50"
                             :class="
                                 option.value === 'continue'
-                                    ? 'border-amber-300'
+                                    ? 'border-warning-line'
                                     : option.value === 'abort_and_rollback'
-                                      ? 'border-rose-300'
-                                      : 'border-slate-300'
+                                      ? 'border-danger-line'
+                                      : 'border-line-strong'
                             "
                             :disabled="busy"
                             @click="decide(option.value)"
                         >
                             <span class="font-medium">{{ option.label }}</span>
-                            <span class="mt-1 block text-xs text-slate-500">{{ option.description }}</span>
+                            <span class="mt-1 block text-xs text-fg-subtle">{{ option.description }}</span>
                         </button>
                     </div>
                 </div>
@@ -284,7 +304,7 @@ const forceFail = async () => {
 
             <div
                 v-if="failureReason"
-                class="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"
+                class="rounded-md border border-danger-line bg-danger-surface px-4 py-3 text-sm text-danger-text"
             >
                 <p class="font-medium">This deployment failed.</p>
                 <p class="mt-1 font-mono text-xs">{{ failureReason }}</p>
@@ -292,10 +312,10 @@ const forceFail = async () => {
 
             <div
                 v-if="record.newer_touching_same_repos.length > 0 && deployment.can.rollback"
-                class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                class="rounded-md border border-warning-line bg-warning-surface px-4 py-3 text-sm text-warning-text"
             >
                 <p class="font-medium">
-                    {{ record.newer_touching_same_repos.length }} later deployment(s) have touched the same
+                    {{ pluralise(record.newer_touching_same_repos.length, 'later deployment') }} have touched the same
                     checkouts.
                 </p>
                 <p class="mt-1 text-xs">
@@ -305,7 +325,7 @@ const forceFail = async () => {
                         v-for="newer in record.newer_touching_same_repos"
                         :key="newer.id"
                         :to="`/deployments/${newer.id}`"
-                        class="mr-2 underline"
+                        class="link me-2"
                     >
                         #{{ newer.id }}
                     </RouterLink>
@@ -316,61 +336,61 @@ const forceFail = async () => {
                 <CardPanel title="Summary" class="lg:col-span-2">
                     <dl class="grid gap-3 text-sm sm:grid-cols-2">
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Queued by</dt>
+                            <dt class="label-caps">Queued by</dt>
                             <dd>{{ deployment.creator }} · {{ dateTime(deployment.created_at) }}</dd>
                         </div>
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Duration</dt>
+                            <dt class="label-caps">Duration</dt>
                             <dd>{{ duration(state?.duration ?? deployment.duration) }}</dd>
                         </div>
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Options</dt>
+                            <dt class="label-caps">Options</dt>
                             <dd class="flex flex-wrap gap-1">
                                 <span
                                     v-for="flag in deployment.option_flags"
                                     :key="flag"
-                                    class="rounded bg-slate-100 px-1.5 py-0.5 text-xs"
+                                    class="rounded bg-sunken px-1.5 py-0.5 text-xs"
                                 >
                                     {{ flag }}
                                 </span>
                             </dd>
                         </div>
                         <div v-if="deployment.decision_response">
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Decision</dt>
+                            <dt class="label-caps">Decision</dt>
                             <dd>
                                 {{ deployment.decision_response_label }}
-                                <span class="text-slate-500">
+                                <span class="text-fg-subtle">
                                     by {{ deployment.decided_by ?? 'timeout' }}
                                 </span>
                             </dd>
                         </div>
                     </dl>
 
-                    <h3 class="mt-4 text-xs font-semibold tracking-wide text-slate-500 uppercase">Line items</h3>
-                    <ul class="mt-1 divide-y divide-slate-100 text-sm">
+                    <h3 class="label-caps mt-4">Line items</h3>
+                    <ul class="mt-1 divide-y divide-line text-sm">
                         <li v-for="item in deployment.refs" :key="item.id" class="flex flex-wrap gap-2 py-1.5">
                             <span
-                                class="rounded px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset"
+                                class="rounded-sm border px-1.5 py-0.5 text-2xs font-medium"
                                 :class="
                                     item.action === 'undeploy'
-                                        ? 'bg-orange-100 text-orange-900 ring-orange-300'
-                                        : 'bg-sky-100 text-sky-800 ring-sky-300'
+                                        ? 'border-warning-line bg-warning-surface text-warning-text'
+                                        : 'border-line-strong bg-sunken text-fg-muted'
                                 "
                             >
                                 {{ item.action_label }}
                             </span>
                             <span>{{ item.name }}</span>
-                            <span v-if="item.version" class="text-slate-500">({{ item.version }})</span>
-                            <code class="ml-auto font-mono text-xs">{{ item.short_ref }}</code>
+                            <span v-if="item.version" class="text-fg-subtle">({{ item.version }})</span>
+                            <code class="ms-auto font-mono text-xs">{{ item.short_ref }}</code>
                         </li>
                     </ul>
 
                     <div v-if="deployment.patches?.length" class="mt-4">
-                        <h3 class="text-xs font-semibold tracking-wide text-slate-500 uppercase">Patches</h3>
+                        <h3 class="label-caps">Patches</h3>
                         <ul class="mt-1 space-y-1 text-sm">
                             <li v-for="patch in deployment.patches" :key="patch.id">
                                 {{ patch.name }}
-                                <span :class="patch.applied ? 'text-emerald-700' : 'text-slate-500'">
+                                <span :class="patch.applied ? 'text-success-text' : 'text-fg-subtle'">
                                     — {{ patch.applied ? 'applied' : 'not applied' }}
                                 </span>
                             </li>
@@ -382,14 +402,14 @@ const forceFail = async () => {
                      what makes a rollback possible in both directions: it records
                      presence as well as ref. -->
                 <CardPanel title="Undo point" subtitle="Recorded before staging was touched">
-                    <p v-if="(deployment.snapshots?.length ?? 0) === 0" class="text-sm text-slate-500">
+                    <p v-if="(deployment.snapshots?.length ?? 0) === 0" class="text-sm text-fg-subtle">
                         No snapshots were recorded, so this deployment cannot be rolled back automatically.
                     </p>
                     <ul v-else class="space-y-2 text-sm">
                         <li v-for="(snapshot, index) in deployment.snapshots" :key="index">
                             <p class="font-medium">{{ snapshot.checkout }}</p>
-                            <p class="font-mono text-xs text-slate-500">{{ snapshot.summary }}</p>
-                            <p v-if="!snapshot.rollbackable" class="text-xs text-amber-700">
+                            <p class="font-mono text-xs text-fg-subtle">{{ snapshot.summary }}</p>
+                            <p v-if="!snapshot.rollbackable" class="text-xs text-warning-text">
                                 not rollbackable — no previous ref was captured
                             </p>
                         </li>
@@ -413,7 +433,7 @@ const forceFail = async () => {
                 Every checkout this deployment touched goes back to the ref recorded in its undo point. A checkout
                 it created is removed again; one it removed is cloned back.
             </p>
-            <p class="mt-2 text-sm text-slate-600">
+            <p class="mt-2 text-sm text-fg-muted">
                 <code class="font-mono">--force</code> is deliberately dropped from a rollback's options — a rollback
                 must not skip its own canary.
             </p>
@@ -421,14 +441,14 @@ const forceFail = async () => {
             <template #footer>
                 <button
                     type="button"
-                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    class="btn btn-secondary"
                     @click="showRollback = false"
                 >
                     Cancel
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-50"
+                    class="btn btn-danger"
                     :disabled="busy"
                     @click="rollback"
                 >
@@ -451,14 +471,14 @@ const forceFail = async () => {
             <template #footer>
                 <button
                     type="button"
-                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    class="btn btn-secondary"
                     @click="showCancel = false"
                 >
                     Never mind
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    class="btn btn-primary"
                     :disabled="busy"
                     @click="cancel"
                 >
@@ -479,20 +499,20 @@ const forceFail = async () => {
                     v-for="option in abortOptions"
                     :key="option.value"
                     type="button"
-                    class="rounded-md border px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
-                    :class="option.value === 'abort_and_rollback' ? 'border-rose-300' : 'border-slate-300'"
+                    class="rounded-md border px-3 py-2 text-start text-sm hover:bg-sunken disabled:opacity-50"
+                    :class="option.value === 'abort_and_rollback' ? 'border-danger-line' : 'border-line-strong'"
                     :disabled="busy"
                     @click="abort(option.value)"
                 >
                     <span class="font-medium">{{ option.label }}</span>
-                    <span class="mt-1 block text-xs text-slate-500">{{ option.description }}</span>
+                    <span class="mt-1 block text-xs text-fg-subtle">{{ option.description }}</span>
                 </button>
             </div>
 
             <template #footer>
                 <button
                     type="button"
-                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    class="btn btn-secondary"
                     @click="showAbort = false"
                 >
                     Never mind
@@ -514,7 +534,7 @@ const forceFail = async () => {
                 ever going to answer an abort request, and every deployment queued since has been silently stuck
                 behind the lock this one never released.
             </p>
-            <p class="mt-2 text-sm text-rose-700">
+            <p class="mt-2 text-sm text-danger-text">
                 If a worker is in fact still processing this deployment, forcing it here will not stop that work —
                 it will just make this app's record of it wrong. Confirm the worker is actually gone first.
             </p>
@@ -522,14 +542,14 @@ const forceFail = async () => {
             <template #footer>
                 <button
                     type="button"
-                    class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
+                    class="btn btn-secondary"
                     @click="showForceFail = false"
                 >
                     Never mind
                 </button>
                 <button
                     type="button"
-                    class="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-50"
+                    class="btn btn-danger"
                     :disabled="busy"
                     @click="forceFail"
                 >

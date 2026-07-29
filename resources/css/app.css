@@ -8,16 +8,681 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
+/* ===========================================================================
+   Palette
+   ---------------------------------------------------------------------------
+   Every colour in the console is one of the semantic roles below, and each role
+   is declared twice: once for each appearance. Nothing outside this block names
+   a hue, so a screen cannot be styled for one appearance and broken in the
+   other — `bg-surface` is white on the light theme and near-black on the dark
+   one without the component knowing which is on.
+
+   OKLCH, because the roles are ramps: `--l-fg-muted` and `--l-fg-subtle` differ
+   only in lightness, and in OKLCH that means they differ only in how dark they
+   look. Every value is inside sRGB, so there is no P3 fallback to keep in sync
+   and no clipping on whatever monitor is nearest the rack.
+
+   Hues are allocated once each, so a colour means one thing:
+
+     285  accent      interactive, brand, focus
+     245  info        in progress, informational
+     155  success     done, present, healthy
+      85  warning     drift, needs a decision, reversible removal
+      25  danger      failed, destructive
+
+   =========================================================================== */
+:root {
+    /* --- light ------------------------------------------------------------ */
+    --l-canvas: oklch(0.978 0.003 265);
+    --l-surface: oklch(1 0 0);
+    --l-sunken: oklch(0.967 0.004 265);
+    --l-raised: oklch(1 0 0);
+    --l-overlay: oklch(0.22 0.02 265 / 0.4);
+
+    --l-line: oklch(0 0 0 / 0.09);
+    --l-line-strong: oklch(0 0 0 / 0.16);
+    --l-image-outline: oklch(0 0 0 / 0.1);
+
+    --l-fg: oklch(0.22 0.012 265);
+    --l-fg-muted: oklch(0.46 0.012 265);
+    --l-fg-subtle: oklch(0.556 0.013 265);
+    --l-fg-faint: oklch(0.6 0.012 265);
+
+    --l-accent: oklch(0.52 0.22 285);
+    --l-accent-hover: oklch(0.465 0.21 285);
+    --l-accent-fg: oklch(1 0 0);
+    --l-accent-text: oklch(0.49 0.21 285);
+    --l-accent-subtle: oklch(0.965 0.018 285);
+    --l-accent-line: oklch(0.88 0.055 285);
+    --l-ring: oklch(0.55 0.2 285);
+
+    --l-success-surface: oklch(0.955 0.035 155);
+    --l-success-line: oklch(0.86 0.075 155);
+    --l-success-text: oklch(0.42 0.1 155);
+    --l-success-solid: oklch(0.55 0.14 155);
+    --l-success-solid-fg: oklch(1 0 0);
+
+    --l-info-surface: oklch(0.96 0.025 245);
+    --l-info-line: oklch(0.86 0.06 245);
+    --l-info-text: oklch(0.47 0.14 245);
+    --l-info-solid: oklch(0.55 0.17 245);
+    --l-info-solid-fg: oklch(1 0 0);
+
+    --l-warning-surface: oklch(0.965 0.04 85);
+    --l-warning-line: oklch(0.86 0.09 85);
+    --l-warning-text: oklch(0.44 0.09 75);
+    --l-warning-solid: oklch(0.72 0.16 75);
+    --l-warning-solid-fg: oklch(0.24 0.03 75);
+
+    --l-danger-surface: oklch(0.958 0.025 25);
+    --l-danger-line: oklch(0.87 0.07 25);
+    --l-danger-text: oklch(0.45 0.16 25);
+    --l-danger-solid: oklch(0.55 0.2 25);
+    --l-danger-solid-hover: oklch(0.49 0.19 25);
+    --l-danger-solid-fg: oklch(1 0 0);
+
+    /* Terminal output keeps one appearance: a log pane that inverts between
+       themes is a log pane you have to re-learn, and this is the surface people
+       read when something has already gone wrong. */
+    --l-terminal: oklch(0.19 0.014 265);
+    --l-terminal-fg: oklch(0.9 0.008 265);
+
+    /* --- dark ------------------------------------------------------------- */
+    --d-canvas: oklch(0.165 0.008 265);
+    --d-surface: oklch(0.205 0.009 265);
+    --d-sunken: oklch(0.14 0.008 265);
+    --d-raised: oklch(0.245 0.01 265);
+    --d-overlay: oklch(0.11 0.01 265 / 0.66);
+
+    --d-line: oklch(1 0 0 / 0.11);
+    --d-line-strong: oklch(1 0 0 / 0.2);
+    --d-image-outline: oklch(1 0 0 / 0.1);
+
+    --d-fg: oklch(0.965 0.003 265);
+    --d-fg-muted: oklch(0.76 0.012 265);
+    --d-fg-subtle: oklch(0.655 0.014 265);
+    --d-fg-faint: oklch(0.55 0.014 265);
+
+    --d-accent: oklch(0.555 0.215 285);
+    --d-accent-hover: oklch(0.605 0.205 285);
+    --d-accent-fg: oklch(1 0 0);
+    --d-accent-text: oklch(0.78 0.14 285);
+    --d-accent-subtle: oklch(0.26 0.045 285);
+    --d-accent-line: oklch(0.38 0.09 285);
+    --d-ring: oklch(0.72 0.17 285);
+
+    --d-success-surface: oklch(0.245 0.045 155);
+    --d-success-line: oklch(0.37 0.07 155);
+    --d-success-text: oklch(0.82 0.14 155);
+    --d-success-solid: oklch(0.6 0.15 155);
+    --d-success-solid-fg: oklch(0.16 0.02 155);
+
+    --d-info-surface: oklch(0.245 0.05 245);
+    --d-info-line: oklch(0.38 0.09 245);
+    --d-info-text: oklch(0.8 0.11 245);
+    --d-info-solid: oklch(0.55 0.17 245);
+    --d-info-solid-fg: oklch(1 0 0);
+
+    --d-warning-surface: oklch(0.245 0.045 85);
+    --d-warning-line: oklch(0.38 0.075 85);
+    --d-warning-text: oklch(0.85 0.14 85);
+    --d-warning-solid: oklch(0.78 0.16 80);
+    --d-warning-solid-fg: oklch(0.2 0.03 80);
+
+    --d-danger-surface: oklch(0.245 0.05 25);
+    --d-danger-line: oklch(0.4 0.11 25);
+    --d-danger-text: oklch(0.8 0.12 25);
+    --d-danger-solid: oklch(0.55 0.2 25);
+    --d-danger-solid-hover: oklch(0.6 0.2 25);
+    --d-danger-solid-fg: oklch(1 0 0);
+
+    --d-terminal: oklch(0.13 0.01 265);
+    --d-terminal-fg: oklch(0.88 0.008 265);
+
+    /* --- active: light is the default ------------------------------------- */
+    color-scheme: light;
+
+    --canvas: var(--l-canvas);
+    --surface: var(--l-surface);
+    --sunken: var(--l-sunken);
+    --raised: var(--l-raised);
+    --overlay: var(--l-overlay);
+    --line: var(--l-line);
+    --line-strong: var(--l-line-strong);
+    --image-outline: var(--l-image-outline);
+    --fg: var(--l-fg);
+    --fg-muted: var(--l-fg-muted);
+    --fg-subtle: var(--l-fg-subtle);
+    --fg-faint: var(--l-fg-faint);
+    --accent: var(--l-accent);
+    --accent-hover: var(--l-accent-hover);
+    --accent-fg: var(--l-accent-fg);
+    --accent-text: var(--l-accent-text);
+    --accent-subtle: var(--l-accent-subtle);
+    --accent-line: var(--l-accent-line);
+    --ring: var(--l-ring);
+    --success-surface: var(--l-success-surface);
+    --success-line: var(--l-success-line);
+    --success-text: var(--l-success-text);
+    --success-solid: var(--l-success-solid);
+    --success-solid-fg: var(--l-success-solid-fg);
+    --info-surface: var(--l-info-surface);
+    --info-line: var(--l-info-line);
+    --info-text: var(--l-info-text);
+    --info-solid: var(--l-info-solid);
+    --info-solid-fg: var(--l-info-solid-fg);
+    --warning-surface: var(--l-warning-surface);
+    --warning-line: var(--l-warning-line);
+    --warning-text: var(--l-warning-text);
+    --warning-solid: var(--l-warning-solid);
+    --warning-solid-fg: var(--l-warning-solid-fg);
+    --danger-surface: var(--l-danger-surface);
+    --danger-line: var(--l-danger-line);
+    --danger-text: var(--l-danger-text);
+    --danger-solid: var(--l-danger-solid);
+    --danger-solid-hover: var(--l-danger-solid-hover);
+    --danger-solid-fg: var(--l-danger-solid-fg);
+    --terminal: var(--l-terminal);
+    --terminal-fg: var(--l-terminal-fg);
+
+    --elevation-panel: 0 1px 2px oklch(0.22 0.02 265 / 0.05), 0 2px 8px oklch(0.22 0.02 265 / 0.04);
+    --elevation-raised: 0 4px 12px oklch(0.22 0.02 265 / 0.07), 0 12px 32px oklch(0.22 0.02 265 / 0.08);
+    --elevation-hover: 0 1px 2px oklch(0.22 0.02 265 / 0.06), 0 6px 16px oklch(0.22 0.02 265 / 0.08);
+}
+
+/* The dark assignments, applied either because the boot script resolved the
+   preference (see resources/js/theme.js) or — with JavaScript off, which is the
+   sign-in page's whole reason for existing — straight from the OS setting. */
+:root[data-theme='dark'] {
+    color-scheme: dark;
+
+    --canvas: var(--d-canvas);
+    --surface: var(--d-surface);
+    --sunken: var(--d-sunken);
+    --raised: var(--d-raised);
+    --overlay: var(--d-overlay);
+    --line: var(--d-line);
+    --line-strong: var(--d-line-strong);
+    --image-outline: var(--d-image-outline);
+    --fg: var(--d-fg);
+    --fg-muted: var(--d-fg-muted);
+    --fg-subtle: var(--d-fg-subtle);
+    --fg-faint: var(--d-fg-faint);
+    --accent: var(--d-accent);
+    --accent-hover: var(--d-accent-hover);
+    --accent-fg: var(--d-accent-fg);
+    --accent-text: var(--d-accent-text);
+    --accent-subtle: var(--d-accent-subtle);
+    --accent-line: var(--d-accent-line);
+    --ring: var(--d-ring);
+    --success-surface: var(--d-success-surface);
+    --success-line: var(--d-success-line);
+    --success-text: var(--d-success-text);
+    --success-solid: var(--d-success-solid);
+    --success-solid-fg: var(--d-success-solid-fg);
+    --info-surface: var(--d-info-surface);
+    --info-line: var(--d-info-line);
+    --info-text: var(--d-info-text);
+    --info-solid: var(--d-info-solid);
+    --info-solid-fg: var(--d-info-solid-fg);
+    --warning-surface: var(--d-warning-surface);
+    --warning-line: var(--d-warning-line);
+    --warning-text: var(--d-warning-text);
+    --warning-solid: var(--d-warning-solid);
+    --warning-solid-fg: var(--d-warning-solid-fg);
+    --danger-surface: var(--d-danger-surface);
+    --danger-line: var(--d-danger-line);
+    --danger-text: var(--d-danger-text);
+    --danger-solid: var(--d-danger-solid);
+    --danger-solid-hover: var(--d-danger-solid-hover);
+    --danger-solid-fg: var(--d-danger-solid-fg);
+    --terminal: var(--d-terminal);
+    --terminal-fg: var(--d-terminal-fg);
+
+    /* Shadows barely register on a dark canvas; the hairline does the structural
+       work there, so elevation is carried by how much lighter a surface is. */
+    --elevation-panel: 0 1px 2px oklch(0 0 0 / 0.3);
+    --elevation-raised: 0 8px 28px oklch(0 0 0 / 0.5);
+    --elevation-hover: 0 2px 10px oklch(0 0 0 / 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+        color-scheme: dark;
+
+        --canvas: var(--d-canvas);
+        --surface: var(--d-surface);
+        --sunken: var(--d-sunken);
+        --raised: var(--d-raised);
+        --overlay: var(--d-overlay);
+        --line: var(--d-line);
+        --line-strong: var(--d-line-strong);
+        --image-outline: var(--d-image-outline);
+        --fg: var(--d-fg);
+        --fg-muted: var(--d-fg-muted);
+        --fg-subtle: var(--d-fg-subtle);
+        --fg-faint: var(--d-fg-faint);
+        --accent: var(--d-accent);
+        --accent-hover: var(--d-accent-hover);
+        --accent-fg: var(--d-accent-fg);
+        --accent-text: var(--d-accent-text);
+        --accent-subtle: var(--d-accent-subtle);
+        --accent-line: var(--d-accent-line);
+        --ring: var(--d-ring);
+        --success-surface: var(--d-success-surface);
+        --success-line: var(--d-success-line);
+        --success-text: var(--d-success-text);
+        --success-solid: var(--d-success-solid);
+        --success-solid-fg: var(--d-success-solid-fg);
+        --info-surface: var(--d-info-surface);
+        --info-line: var(--d-info-line);
+        --info-text: var(--d-info-text);
+        --info-solid: var(--d-info-solid);
+        --info-solid-fg: var(--d-info-solid-fg);
+        --warning-surface: var(--d-warning-surface);
+        --warning-line: var(--d-warning-line);
+        --warning-text: var(--d-warning-text);
+        --warning-solid: var(--d-warning-solid);
+        --warning-solid-fg: var(--d-warning-solid-fg);
+        --danger-surface: var(--d-danger-surface);
+        --danger-line: var(--d-danger-line);
+        --danger-text: var(--d-danger-text);
+        --danger-solid: var(--d-danger-solid);
+        --danger-solid-hover: var(--d-danger-solid-hover);
+        --danger-solid-fg: var(--d-danger-solid-fg);
+        --terminal: var(--d-terminal);
+        --terminal-fg: var(--d-terminal-fg);
+
+        --elevation-panel: 0 1px 2px oklch(0 0 0 / 0.3);
+        --elevation-raised: 0 8px 28px oklch(0 0 0 / 0.5);
+        --elevation-hover: 0 2px 10px oklch(0 0 0 / 0.35);
+    }
+}
+
+/* ===========================================================================
+   Theme
+   ---------------------------------------------------------------------------
+   `inline` matters: it makes `bg-surface` compile to `var(--surface)` rather
+   than to a copy of whatever `--surface` held when the theme was generated,
+   which is what lets one utility resolve differently per appearance.
+   =========================================================================== */
+@theme inline {
+    --color-canvas: var(--canvas);
+    --color-surface: var(--surface);
+    --color-sunken: var(--sunken);
+    --color-raised: var(--raised);
+    --color-overlay: var(--overlay);
+
+    --color-line: var(--line);
+    --color-line-strong: var(--line-strong);
+    --color-image-outline: var(--image-outline);
+
+    --color-fg: var(--fg);
+    --color-fg-muted: var(--fg-muted);
+    --color-fg-subtle: var(--fg-subtle);
+    --color-fg-faint: var(--fg-faint);
+
+    --color-accent: var(--accent);
+    --color-accent-hover: var(--accent-hover);
+    --color-accent-fg: var(--accent-fg);
+    --color-accent-text: var(--accent-text);
+    --color-accent-subtle: var(--accent-subtle);
+    --color-accent-line: var(--accent-line);
+    --color-ring: var(--ring);
+
+    --color-success-surface: var(--success-surface);
+    --color-success-line: var(--success-line);
+    --color-success-text: var(--success-text);
+    --color-success-solid: var(--success-solid);
+    --color-success-solid-fg: var(--success-solid-fg);
+
+    --color-info-surface: var(--info-surface);
+    --color-info-line: var(--info-line);
+    --color-info-text: var(--info-text);
+    --color-info-solid: var(--info-solid);
+    --color-info-solid-fg: var(--info-solid-fg);
+
+    --color-warning-surface: var(--warning-surface);
+    --color-warning-line: var(--warning-line);
+    --color-warning-text: var(--warning-text);
+    --color-warning-solid: var(--warning-solid);
+    --color-warning-solid-fg: var(--warning-solid-fg);
+
+    --color-danger-surface: var(--danger-surface);
+    --color-danger-line: var(--danger-line);
+    --color-danger-text: var(--danger-text);
+    --color-danger-solid: var(--danger-solid);
+    --color-danger-solid-hover: var(--danger-solid-hover);
+    --color-danger-solid-fg: var(--danger-solid-fg);
+
+    --color-terminal: var(--terminal);
+    --color-terminal-fg: var(--terminal-fg);
+
+    --shadow-panel: var(--elevation-panel);
+    --shadow-raised: var(--elevation-raised);
+    --shadow-hover: var(--elevation-hover);
+}
+
 @theme {
+    /* No remote webfonts, on purpose — see the note in vite.config.js. The
+       system stack is what an ops tool that may not reach the internet gets. */
     --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji';
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+    /* One scale, each step carrying the line-height and tracking that suit its
+       job: tight and slightly closed up for headings, open for anything that
+       wraps, a touch of positive tracking on the small sizes that are usually
+       set in caps. */
+    --text-2xs: 0.6875rem;
+    --text-2xs--line-height: 1.45;
+    --text-2xs--letter-spacing: 0.01em;
+    --text-xs: 0.75rem;
+    --text-xs--line-height: 1.5;
+    --text-xs--letter-spacing: 0.005em;
+    --text-sm: 0.875rem;
+    --text-sm--line-height: 1.55;
+    --text-base: 1rem;
+    --text-base--line-height: 1.6;
+    --text-lg: 1.125rem;
+    --text-lg--line-height: 1.4;
+    --text-lg--letter-spacing: -0.01em;
+    --text-xl: 1.25rem;
+    --text-xl--line-height: 1.3;
+    --text-xl--letter-spacing: -0.014em;
+    --text-2xl: 1.5rem;
+    --text-2xl--line-height: 1.2;
+    --text-2xl--letter-spacing: -0.018em;
+    --text-3xl: 1.875rem;
+    --text-3xl--line-height: 1.15;
+    --text-3xl--letter-spacing: -0.021em;
+
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.625rem;
+    --radius-xl: 0.875rem;
+    --radius-2xl: 1.125rem;
+
+    --ease-out-quint: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Status pill and badge classes come from the server (the enums' badgeClasses()
-   methods) rather than appearing literally in a template, so Tailwind cannot see
-   them when it scans. Listing them here keeps one colour map on the PHP side
-   instead of two that can disagree. */
-@source inline(
-    "bg-{slate,sky,emerald,rose,amber,orange,violet}-{50,100} text-{slate,sky,emerald,rose,amber,orange,violet}-{500,600,700,800,900} ring-{slate,sky,emerald,rose,amber,orange,violet}-300"
-);
+/* Escape hatch for the handful of cases a semantic token cannot express — an
+   asset that has to be inverted, say. Reach for a token first. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ===========================================================================
+   Base
+   =========================================================================== */
+@layer base {
+    html {
+        background-color: var(--color-canvas);
+    }
+
+    body {
+        color: var(--color-fg);
+    }
+
+    /* Native controls — checkboxes, selects, scrollbars — follow `color-scheme`
+       on the root, which is set alongside every palette above. This gives them
+       the brand colour on top of that. */
+    :root {
+        accent-color: var(--color-accent);
+    }
+
+    ::selection {
+        background-color: var(--color-accent-subtle);
+        color: var(--color-fg);
+    }
+
+    /* The browser's own ring is the most reliable indicator there is, so the
+       only thing changed here is the colour, and every surface it can land on
+       has been checked against it. */
+    :focus-visible {
+        outline: 2px solid var(--color-ring);
+        outline-offset: 2px;
+    }
+
+    /* Windows high-contrast mode picks its own colours; overriding them there
+       is how a focus ring disappears entirely. */
+    @media (forced-colors: active) {
+        :focus-visible {
+            outline-color: Highlight;
+        }
+    }
+
+    /* An anchored heading otherwise lands under the sticky chrome. */
+    :target {
+        scroll-margin-top: 5rem;
+    }
+
+    /* Ops screens are mostly refs, hostnames and paths; none of them should be
+       able to push a table sideways. */
+    code,
+    pre,
+    kbd {
+        overflow-wrap: break-word;
+    }
+}
+
+/* ===========================================================================
+   Utilities
+   ---------------------------------------------------------------------------
+   The console has two bundles: the SPA and the few kilobytes behind the
+   server-rendered sign-in pages. Buttons, inputs and panels live here rather
+   than in a Vue component so both get the same ones — a sign-in button that
+   drifts from every other button in the console is the exact failure this
+   avoids.
+   =========================================================================== */
+
+/* Panel: elevation from a shadow, plus a hairline that is almost invisible on
+   the light theme and is the structural edge on the dark one. */
+@utility panel {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-panel);
+}
+
+@utility label-caps {
+    font-size: var(--text-2xs);
+    line-height: 1.45;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--color-fg-subtle);
+}
+
+/* Width is deliberately not set: the same control is a full-width field in a form
+   and an auto-width filter above a table, and a utility that decided for both
+   would have to be fought off in half its uses. Add `w-full` where you want it. */
+@utility input-control {
+    min-height: 2.25rem;
+    border-radius: var(--radius-md);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-line-strong);
+    padding: 0.4375rem 0.6875rem;
+    color: var(--color-fg);
+    /* 16px on small viewports or iOS Safari zooms the page on focus. */
+    font-size: var(--text-base);
+
+    @variant sm {
+        font-size: var(--text-sm);
+    }
+
+    &::placeholder {
+        color: var(--color-fg-faint);
+    }
+
+    &:hover:not(:disabled, [aria-invalid='true']) {
+        border-color: var(--color-fg-faint);
+    }
+
+    &:focus-visible {
+        border-color: var(--color-accent);
+        outline: 2px solid var(--color-ring);
+        outline-offset: -1px;
+    }
+
+    &[aria-invalid='true'] {
+        border-color: var(--color-danger-solid);
+    }
+
+    &:disabled {
+        background-color: var(--color-sunken);
+        color: var(--color-fg-subtle);
+        cursor: not-allowed;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        transition-property: border-color, background-color;
+        transition-duration: 120ms;
+        transition-timing-function: var(--ease-out-quint);
+    }
+}
+
+@utility btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    /* 36px: comfortably past the 24px floor without loosening tables that are
+       meant to be read a dozen rows at a time. */
+    min-height: 2.25rem;
+    padding-inline: 0.75rem;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+
+    &:disabled,
+    &[aria-disabled='true'] {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Press feedback, and never the only feedback: every button that changes
+       something also changes its label or shows a spinner. */
+    @media (prefers-reduced-motion: no-preference) {
+        transition-property: background-color, border-color, color, scale, box-shadow;
+        transition-duration: 120ms;
+        transition-timing-function: var(--ease-out-quint);
+
+        &:not(:disabled, [aria-disabled='true']):active {
+            scale: 0.96;
+        }
+    }
+}
+
+@utility btn-primary {
+    background-color: var(--color-accent);
+    color: var(--color-accent-fg);
+
+    &:hover:not(:disabled, [aria-disabled='true']) {
+        background-color: var(--color-accent-hover);
+    }
+
+    /* The accent ring would sit violet-on-violet here, so the indicator switches
+       to the foreground colour, which is near-black on the light theme and
+       near-white on the dark one. */
+    &:focus-visible {
+        outline-color: var(--color-fg);
+    }
+}
+
+@utility btn-secondary {
+    background-color: var(--color-surface);
+    border-color: var(--color-line-strong);
+    color: var(--color-fg);
+
+    &:hover:not(:disabled, [aria-disabled='true']) {
+        background-color: var(--color-sunken);
+        border-color: var(--color-fg-faint);
+    }
+}
+
+@utility btn-ghost {
+    color: var(--color-fg-muted);
+
+    &:hover:not(:disabled, [aria-disabled='true']) {
+        background-color: var(--color-sunken);
+        color: var(--color-fg);
+    }
+}
+
+@utility btn-danger {
+    background-color: var(--color-danger-solid);
+    color: var(--color-danger-solid-fg);
+
+    &:hover:not(:disabled, [aria-disabled='true']) {
+        background-color: var(--color-danger-solid-hover);
+    }
+
+    &:focus-visible {
+        outline-color: var(--color-fg);
+    }
+}
+
+@utility btn-danger-quiet {
+    border-color: var(--color-danger-line);
+    color: var(--color-danger-text);
+
+    &:hover:not(:disabled, [aria-disabled='true']) {
+        background-color: var(--color-danger-surface);
+    }
+}
+
+/* Icon-only, square, same 36px as the text buttons. */
+@utility btn-icon {
+    padding-inline: 0;
+    width: 2.25rem;
+    flex: none;
+}
+
+/* A link that reads as a link: underlined, offset off the font's own metrics so
+   it does not cut through descenders. */
+@utility link {
+    color: var(--color-accent-text);
+    text-decoration-line: underline;
+    text-decoration-thickness: from-font;
+    text-underline-position: from-font;
+    text-decoration-skip-ink: auto;
+
+    &:hover {
+        text-decoration-thickness: 2px;
+    }
+}
+
+/* Quieter link for chrome and table cells, where a page of underlines is worse
+   than no underlines. */
+@utility link-quiet {
+    color: var(--color-fg-muted);
+    text-decoration-line: none;
+
+    &:hover {
+        color: var(--color-fg);
+        text-decoration-line: underline;
+        text-underline-position: from-font;
+    }
+}
+
+/* Log and command output. Scrolls inside itself so a 200-column rsync line
+   cannot widen the page. */
+@utility terminal {
+    background-color: var(--color-terminal);
+    color: var(--color-terminal-fg);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    overflow: auto;
+    overscroll-behavior: contain;
+    tab-size: 4;
+}
+
+/* Sizes, refs, counts and elapsed times all change in place while you watch
+   them; proportional digits make the row jump every tick. */
+@utility numeric {
+    font-variant-numeric: tabular-nums;
+}

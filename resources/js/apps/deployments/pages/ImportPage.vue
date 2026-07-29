@@ -3,10 +3,12 @@ import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import { ApiError, api, endpoint } from '../../../api';
+import AppButton from '../../../components/AppButton.vue';
+import AppIcon from '../../../components/AppIcon.vue';
 import CardPanel from '../../../components/CardPanel.vue';
 import LoadState from '../../../components/LoadState.vue';
-import StatusBadge from '../components/StatusBadge.vue';
-import { shortRef } from '../../../format';
+import StatusBadge from '../../../components/StatusBadge.vue';
+import { pluralise, shortRef } from '../../../format';
 import { usePolling } from '../../../live';
 import { flash, flashError, refreshSession, session } from '../../../store';
 
@@ -195,28 +197,36 @@ const apply = async () => {
 
 <template>
     <div class="space-y-4">
-        <header class="flex flex-wrap items-baseline gap-3">
-            <h1 class="text-lg font-semibold tracking-tight">Import from disk</h1>
-            <p class="text-sm text-slate-500">
-                Reads <code class="font-mono">{{ plan?.root ?? session.settings.staging_path }}</code> on
-                <code class="font-mono">{{ session.settings.staging_host }}</code> and fills the registry in from
-                what is actually there.
-            </p>
-            <button
-                type="button"
-                class="rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300"
-                @click="manualMode = !manualMode"
-            >
-                {{ manualMode ? 'Cancel' : 'Paste JSON instead' }}
-            </button>
-            <button
-                type="button"
-                class="ml-auto rounded-md px-3 py-1.5 text-sm ring-1 ring-slate-300 disabled:opacity-50"
-                :disabled="loading || busy || scanning"
-                @click="load(true)"
-            >
-                Re-scan
-            </button>
+        <header class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <h1 class="text-xl font-semibold">Import from disk</h1>
+                <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
+                    Reads
+                    <code class="rounded-sm bg-sunken px-1 py-0.5 font-mono text-xs">{{
+                        plan?.root ?? session.settings.staging_path
+                    }}</code>
+                    on
+                    <code class="rounded-sm bg-sunken px-1 py-0.5 font-mono text-xs">{{
+                        session.settings.staging_host
+                    }}</code>
+                    and fills the registry in from what is actually there. Nothing is written until you apply the
+                    plan.
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <AppButton variant="ghost" @click="manualMode = !manualMode">
+                    {{ manualMode ? 'Cancel' : 'Paste JSON instead' }}
+                </AppButton>
+                <AppButton
+                    icon="refresh"
+                    :loading="loading || scanning"
+                    :disabled="busy"
+                    @click="load(true)"
+                >
+                    Re-scan
+                </AppButton>
+            </div>
         </header>
 
         <CardPanel
@@ -225,27 +235,27 @@ const apply = async () => {
             subtitle="For when the scan above can't reach the fleet. Run mwdeploy-shim tree-scan --root <path> [...] wherever you can reach the tree, and paste its stdout below."
         >
             <div class="space-y-3">
-                <div v-if="manualError" class="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                <div v-if="manualError" class="rounded-md border border-danger-line bg-danger-surface px-3 py-2 text-sm text-danger-text">
                     {{ manualError }}
                 </div>
 
                 <div>
-                    <label class="block text-xs font-medium tracking-wide text-slate-500 uppercase">
+                    <label class="label-caps block">
                         Root path
                     </label>
                     <input
                         v-model="manualRoot"
                         type="text"
                         :placeholder="session.settings.staging_path"
-                        class="mt-1 block w-full max-w-sm rounded-md bg-white px-3 py-2 font-mono text-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                        class="input-control mt-1 block w-full max-w-sm font-mono"
                     />
-                    <p class="mt-1 text-xs text-slate-500">
+                    <p class="mt-1 text-xs text-fg-subtle">
                         Only needed if the pasted JSON has no <code class="font-mono">root</code> field of its own.
                     </p>
                 </div>
 
                 <div>
-                    <label class="block text-xs font-medium tracking-wide text-slate-500 uppercase">
+                    <label class="label-caps block">
                         tree-scan JSON
                     </label>
                     <textarea
@@ -253,13 +263,13 @@ const apply = async () => {
                         rows="10"
                         spellcheck="false"
                         placeholder='{"root": "...", "entries": [...]}'
-                        class="mt-1 block w-full rounded-md bg-white px-3 py-2 font-mono text-xs ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                        class="input-control mt-1 block w-full font-mono"
                     />
                 </div>
 
                 <button
                     type="button"
-                    class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                    class="btn btn-primary disabled:opacity-40"
                     :disabled="manualBusy || manualPayload.trim() === ''"
                     @click="submitManual"
                 >
@@ -271,53 +281,57 @@ const apply = async () => {
         <LoadState :loading="loading" :error="error" @retry="load">
             <div
                 v-if="scanning && !plan"
-                class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500"
+                class="flex items-center gap-2 rounded-md border border-line bg-surface px-4 py-6 text-sm text-fg-subtle"
             >
-                <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
+                <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-line-strong border-t-slate-700" />
                 Scanning <code class="font-mono">{{ session.settings.staging_path }}</code> on
                 <code class="font-mono">{{ session.settings.staging_host }}</code>… a large farm can take a while;
                 this page keeps checking on it.
             </div>
 
             <div v-else-if="plan" class="space-y-4">
-                <div class="grid gap-4 sm:grid-cols-4">
-                    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                        <p class="text-xs tracking-wide text-slate-500 uppercase">On disk</p>
-                        <p class="mt-1 text-2xl font-semibold">
+                <!-- One strip, same as the overview's: four readings of the same
+                     scan, so the divider groups them instead of four borders
+                     separating them. -->
+                <div class="panel grid divide-line sm:grid-cols-2 sm:divide-x lg:grid-cols-4">
+                    <div class="p-5">
+                        <p class="label-caps">On disk</p>
+                        <p class="numeric mt-1.5 text-2xl font-semibold">
                             {{ Object.values(plan.scan_counts).reduce((total, count) => total + count, 0) }}
                         </p>
-                        <p class="text-xs text-slate-500">
-                            {{ plan.versions_on_disk.length }} version(s):
+                        <p class="mt-0.5 text-xs text-fg-subtle">
+                            {{ pluralise(plan.versions_on_disk.length, 'version') }}:
                             {{ plan.versions_on_disk.join(', ') || 'none' }}
                         </p>
                     </div>
-                    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                        <p class="text-xs tracking-wide text-slate-500 uppercase">To import</p>
-                        <p class="mt-1 text-2xl font-semibold">{{ plan.actionable_count }}</p>
-                        <p class="text-xs text-slate-500">{{ selected.size }} selected</p>
+                    <div class="border-t border-line p-5 sm:border-t-0">
+                        <p class="label-caps">To import</p>
+                        <p class="numeric mt-1.5 text-2xl font-semibold">{{ plan.actionable_count }}</p>
+                        <p class="numeric mt-0.5 text-xs text-fg-subtle">{{ selected.size }} selected</p>
                     </div>
-                    <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-                        <p class="text-xs tracking-wide text-slate-500 uppercase">Already in sync</p>
-                        <p class="mt-1 text-2xl font-semibold">{{ inSync.length }}</p>
+                    <div class="border-t border-line p-5 lg:border-t-0">
+                        <p class="label-caps">Already in sync</p>
+                        <p class="numeric mt-1.5 text-2xl font-semibold">{{ inSync.length }}</p>
                     </div>
-                    <div
-                        class="rounded-lg border bg-white p-4 shadow-sm"
-                        :class="blocked.length > 0 ? 'border-rose-200' : 'border-slate-200'"
-                    >
-                        <p class="text-xs tracking-wide text-slate-500 uppercase">Cannot import</p>
-                        <p class="mt-1 text-2xl font-semibold" :class="blocked.length > 0 ? 'text-rose-700' : ''">
+                    <div class="border-t border-line p-5 lg:border-t-0">
+                        <p class="label-caps">Cannot import</p>
+                        <p
+                            class="numeric mt-1.5 flex items-center gap-1.5 text-2xl font-semibold"
+                            :class="blocked.length > 0 ? 'text-danger-text' : ''"
+                        >
+                            <AppIcon v-if="blocked.length > 0" name="error" class="size-5 shrink-0" />
                             {{ blocked.length }}
                         </p>
-                        <p class="text-xs text-slate-500">no git remote to deploy from</p>
+                        <p class="mt-0.5 text-xs text-pretty text-fg-subtle">no git remote to deploy from</p>
                     </div>
                 </div>
 
                 <div
                     v-if="plan.warnings.length > 0"
-                    class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                    class="rounded-md border border-warning-line bg-warning-surface px-4 py-3 text-sm text-warning-text"
                 >
-                    <p class="font-medium">{{ plan.warnings.length }} thing(s) worth a look:</p>
-                    <ul class="mt-1 max-h-40 list-disc space-y-0.5 overflow-auto pl-5 text-xs">
+                    <p class="font-medium">{{ pluralise(plan.warnings.length, 'thing') }} worth a look:</p>
+                    <ul class="mt-1 max-h-40 list-disc space-y-0.5 overflow-auto ps-5 text-xs">
                         <li v-for="warning in plan.warnings" :key="warning">{{ warning }}</li>
                     </ul>
                 </div>
@@ -328,19 +342,19 @@ const apply = async () => {
                     flush
                 >
                     <template #actions>
-                        <button type="button" class="text-slate-600 underline" @click="selectRecommended">
+                        <button type="button" class="link-quiet" @click="selectRecommended">
                             Recommended
                         </button>
-                        <button type="button" class="text-slate-600 underline" @click="selectAll">All</button>
-                        <button type="button" class="text-slate-600 underline" @click="selectNone">None</button>
+                        <button type="button" class="link-quiet" @click="selectAll">All</button>
+                        <button type="button" class="link-quiet" @click="selectNone">None</button>
                     </template>
 
-                    <p v-if="actionable.length === 0" class="px-5 py-6 text-sm text-slate-500">
+                    <p v-if="actionable.length === 0" class="px-5 py-6 text-sm text-fg-subtle">
                         The registry already describes this tree. Nothing to import.
                     </p>
 
                     <table v-else class="w-full text-sm">
-                        <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
+                        <thead class="label-caps border-b border-line text-start">
                             <tr>
                                 <th class="px-5 py-2"><span class="sr-only">Select</span></th>
                                 <th class="px-5 py-2">Action</th>
@@ -349,45 +363,45 @@ const apply = async () => {
                                 <th class="px-5 py-2">Path</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-slate-100">
+                        <tbody class="divide-y divide-line">
                             <tr
                                 v-for="entry in actionable"
                                 :key="entry.key"
                                 class="align-top"
-                                :class="isSelected(entry.key) ? 'bg-slate-50' : ''"
+                                :class="isSelected(entry.key) ? 'bg-sunken' : ''"
                             >
                                 <td class="px-5 py-2">
                                     <input
                                         type="checkbox"
-                                        class="mt-0.5 rounded border-slate-300"
+                                        class="mt-0.5 size-4 rounded border-line-strong"
                                         :checked="isSelected(entry.key)"
                                         @change="toggle(entry.key)"
                                     />
                                 </td>
                                 <td class="px-5 py-2">
-                                    <StatusBadge :label="entry.action_label" :classes="entry.badge_classes" />
+                                    <StatusBadge :label="entry.action_label" :tone="entry.badge_tone" />
                                 </td>
                                 <td class="px-5 py-2">
                                     <p class="font-medium">
                                         {{ entry.name }}
-                                        <span v-if="entry.version" class="text-slate-500">({{ entry.version }})</span>
+                                        <span v-if="entry.version" class="text-fg-subtle">({{ entry.version }})</span>
                                     </p>
-                                    <p class="text-xs text-slate-500">{{ entry.summary }}</p>
-                                    <p v-if="entry.manifest_name" class="text-xs text-slate-400">
+                                    <p class="text-xs text-fg-subtle">{{ entry.summary }}</p>
+                                    <p v-if="entry.manifest_name" class="text-xs text-fg-subtle">
                                         extension.json calls this “{{ entry.manifest_name }}”
                                         <template v-if="entry.manifest?.version">
                                             v{{ entry.manifest.version }}
                                         </template>
                                     </p>
-                                    <p v-if="entry.note" class="mt-1 text-xs text-amber-700">{{ entry.note }}</p>
+                                    <p v-if="entry.note" class="mt-1 text-xs text-warning-text">{{ entry.note }}</p>
                                 </td>
                                 <td class="px-5 py-2 font-mono text-xs">
                                     {{ shortRef(entry.ref) }}
-                                    <span v-if="entry.commit && entry.ref !== entry.commit" class="block text-slate-400">
+                                    <span v-if="entry.commit && entry.ref !== entry.commit" class="block text-fg-subtle">
                                         {{ shortRef(entry.commit) }}
                                     </span>
                                 </td>
-                                <td class="px-5 py-2 font-mono text-xs text-slate-500">{{ entry.path }}</td>
+                                <td class="px-5 py-2 font-mono text-xs text-fg-subtle">{{ entry.path }}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -396,13 +410,13 @@ const apply = async () => {
                 <div class="flex flex-wrap items-center gap-3">
                     <button
                         type="button"
-                        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                        class="btn btn-primary disabled:opacity-40"
                         :disabled="busy || scanning || selected.size === 0"
                         @click="apply"
                     >
-                        {{ busy ? 'Importing…' : `Import ${selected.size} change(s)` }}
+                        {{ busy ? 'Importing…' : `Import ${pluralise(selected.size, 'change')}` }}
                     </button>
-                    <p class="text-xs text-slate-500">
+                    <p class="text-xs text-fg-subtle">
                         Imported checkouts are recorded as already deployed, pinned to the ref they are on. No
                         deployment is queued.
                     </p>
@@ -414,35 +428,35 @@ const apply = async () => {
                         subtitle="On disk, but with no git remote — nothing in the registry could describe how to update or restore them."
                         flush
                     >
-                        <ul class="divide-y divide-slate-100 text-sm">
+                        <ul class="divide-y divide-line text-sm">
                             <li v-for="entry in blocked" :key="entry.key" class="px-5 py-2">
                                 <p class="font-medium">{{ entry.name }}</p>
-                                <p class="text-xs text-slate-500">{{ entry.summary }}</p>
-                                <code class="font-mono text-xs text-slate-400">{{ entry.path }}</code>
+                                <p class="text-xs text-fg-subtle">{{ entry.summary }}</p>
+                                <code class="font-mono text-xs text-fg-subtle">{{ entry.path }}</code>
                             </li>
                         </ul>
                     </CardPanel>
                 </div>
 
                 <div v-if="inSync.length > 0">
-                    <button type="button" class="text-sm text-slate-600 underline" @click="showInSync = !showInSync">
-                        {{ showInSync ? 'Hide' : 'Show' }} the {{ inSync.length }} checkout(s) already in sync
+                    <button type="button" class="link-quiet text-sm" @click="showInSync = !showInSync">
+                        {{ showInSync ? 'Hide' : 'Show' }} the {{ pluralise(inSync.length, 'checkout') }} already in sync
                     </button>
 
                     <CardPanel v-if="showInSync" class="mt-2" flush>
-                        <ul class="divide-y divide-slate-100 text-sm">
+                        <ul class="divide-y divide-line text-sm">
                             <li v-for="entry in inSync" :key="entry.key" class="flex flex-wrap gap-2 px-5 py-1.5">
                                 <span>{{ entry.name }}</span>
-                                <span v-if="entry.version" class="text-slate-500">({{ entry.version }})</span>
-                                <code class="ml-auto font-mono text-xs text-slate-500">{{ shortRef(entry.ref) }}</code>
+                                <span v-if="entry.version" class="text-fg-subtle">({{ entry.version }})</span>
+                                <code class="ms-auto font-mono text-xs text-fg-subtle">{{ shortRef(entry.ref) }}</code>
                             </li>
                         </ul>
                     </CardPanel>
                 </div>
 
-                <p class="text-xs text-slate-500">
+                <p class="text-xs text-fg-subtle">
                     Config lives outside the version trees. If the tree has one and it is not registered yet, the
-                    <RouterLink to="/deployments/repositories/config" class="underline">config repository screen</RouterLink>
+                    <RouterLink to="/deployments/repositories/config" class="link">config repository screen</RouterLink>
                     will adopt it in one step.
                 </p>
             </div>

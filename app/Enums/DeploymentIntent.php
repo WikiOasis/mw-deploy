@@ -28,13 +28,21 @@ enum DeploymentIntent: string
         };
     }
 
-    public function badgeClasses(): string
+    /**
+     * Intent is metadata, so it is mostly neutral.
+     *
+     * Every intent used to get its own colour, which meant a history row carried
+     * two coloured pills competing for the same attention — and the one that
+     * matters when scanning a list of deployments is the status. What survives is
+     * the part that is a warning rather than a label: an intent that removes
+     * things still says so, in the colour the rest of the console uses for that.
+     */
+    public function badgeTone(): string
     {
         return match ($this) {
-            self::Deploy => 'bg-sky-100 text-sky-800 ring-sky-300',
-            self::Undeploy => 'bg-orange-100 text-orange-900 ring-orange-300',
-            self::VersionCreate => 'bg-violet-100 text-violet-900 ring-violet-300',
-            self::VersionUndeploy => 'bg-rose-100 text-rose-900 ring-rose-300',
+            self::Deploy, self::VersionCreate => 'neutral',
+            self::Undeploy => 'warning',
+            self::VersionUndeploy => 'danger',
         };
     }
 

@@ -24,11 +24,12 @@ enum PresenceStatus: string
         };
     }
 
-    public function badgeClasses(): string
+    /** See DeploymentStatus::badgeTone() for why this is a tone and not a colour. */
+    public function badgeTone(): string
     {
         return match ($this) {
-            self::Present => 'bg-emerald-100 text-emerald-800 ring-emerald-300',
-            self::Undeployed => 'bg-slate-100 text-slate-500 ring-slate-300',
+            self::Present => 'success',
+            self::Undeployed => 'neutral',
         };
     }
 

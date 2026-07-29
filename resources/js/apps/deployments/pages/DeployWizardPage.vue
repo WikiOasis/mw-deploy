@@ -1,8 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { pluralise } from '../../../format';
 
 import { ApiError, api, endpoint } from '../../../api';
+import AppButton from '../../../components/AppButton.vue';
+import AppIcon from '../../../components/AppIcon.vue';
 import CardPanel from '../../../components/CardPanel.vue';
 import CheckoutPicker from '../components/CheckoutPicker.vue';
 import DeployOptions from '../components/DeployOptions.vue';
@@ -46,6 +49,44 @@ const settings = ref({
 });
 
 const isUndeploy = computed(() => props.intent === 'undeploy');
+
+/**
+ * The three steps and where you are in them.
+ *
+ * Each label names what that step is *for*, and each button below names the step
+ * it goes to — so the flow reads "Choose where it goes", "Review the plan", then
+ * the actual consequence. A generic "Continue" on one step and a specific "Review
+ * the plan" on the next makes them look like different kinds of control.
+ */
+const STEP_ORDER = ['pick', 'options', 'review'];
+
+const STEP_LABELS = { pick: 'Select', options: 'Where it goes', review: 'Review' };
+
+/** What the final button says, which is the consequence and not "Confirm". */
+const confirmLabel = computed(() => {
+    if (plan.value?.removes_anything) {
+        return 'Remove from the fleet';
+    }
+
+    if (settings.value?.stagingOnly) {
+        return 'Deploy to staging';
+    }
+
+    return `Deploy to ${
+        settings.value?.allServers ? 'all appservers' : pluralise(settings.value?.servers.length ?? 0, 'appserver')
+    }`;
+});
+
+const steps = computed(() => {
+    const at = STEP_ORDER.indexOf(step.value);
+
+    return STEP_ORDER.map((key, index) => ({
+        key,
+        label: STEP_LABELS[key],
+        state: index < at ? 'done' : index === at ? 'current' : 'upcoming',
+    }));
+});
+
 const selectedIds = computed(() => Object.keys(selection.value).map(Number));
 
 const load = async () => {
@@ -167,10 +208,10 @@ const confirm = async () => {
     <LoadState :loading="loading" :error="error" @retry="load">
         <div v-if="options" class="space-y-6">
             <header>
-                <h1 class="text-lg font-semibold tracking-tight">
+                <h1 class="text-xl font-semibold">
                     {{ isUndeploy ? 'Undeploy from the fleet' : 'New deployment' }}
                 </h1>
-                <p class="mt-1 text-sm text-slate-500">
+                <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
                     <template v-if="isUndeploy">
                         Removes checkouts from the staging tree and from every server, one
                         <code class="font-mono">rm -rf</code> per host. Reversible: rolling the removal back
@@ -182,23 +223,45 @@ const confirm = async () => {
                 </p>
             </header>
 
-            <ol class="flex flex-wrap gap-4 text-sm">
-                <li
-                    v-for="(label, key) in { pick: '1. Select', options: '2. Options', review: '3. Review' }"
-                    :key="key"
-                    class="font-medium"
-                    :class="step === key ? 'text-slate-900 underline' : 'text-slate-400'"
-                >
-                    {{ label }}
-                </li>
-            </ol>
+            <!-- Where you are in the flow. The current step is marked with
+                 `aria-current`, and a finished one carries a tick as well as a
+                 colour, so the three states are not told apart by hue alone. -->
+            <nav aria-label="Deployment steps">
+                <ol class="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+                    <li v-for="(entry, index) in steps" :key="entry.key" class="flex items-center gap-2">
+                        <AppIcon v-if="index > 0" name="chevron-right" class="size-3.5 text-fg-faint" />
+                        <span
+                            class="flex items-center gap-2"
+                            :aria-current="step === entry.key ? 'step' : undefined"
+                        >
+                            <span
+                                class="numeric inline-flex size-5 flex-none items-center justify-center rounded-full text-2xs font-semibold"
+                                :class="
+                                    entry.state === 'done'
+                                        ? 'bg-success-surface text-success-text'
+                                        : entry.state === 'current'
+                                          ? 'bg-accent text-accent-fg'
+                                          : 'bg-sunken text-fg-subtle'
+                                "
+                                aria-hidden="true"
+                            >
+                                <AppIcon v-if="entry.state === 'done'" name="check" class="size-3" />
+                                <template v-else>{{ index + 1 }}</template>
+                            </span>
+                            <span :class="entry.state === 'upcoming' ? 'text-fg-subtle' : 'font-medium text-fg'">
+                                {{ entry.label }}
+                            </span>
+                        </span>
+                    </li>
+                </ol>
+            </nav>
 
             <div
                 v-if="validation.length > 0"
-                class="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"
+                class="rounded-md border border-danger-line bg-danger-surface px-4 py-3 text-sm text-danger-text"
             >
                 <p class="font-medium">This selection was refused:</p>
-                <ul class="mt-1 list-disc space-y-0.5 pl-5">
+                <ul class="mt-1 list-disc space-y-0.5 ps-5">
                     <li v-for="message in validation" :key="message">{{ message }}</li>
                 </ul>
             </div>
@@ -227,18 +290,18 @@ const confirm = async () => {
                                 <input
                                     v-model="patchIds"
                                     type="checkbox"
-                                    class="mt-1 rounded border-slate-300"
+                                    class="mt-1 size-4 rounded border-line-strong"
                                     :value="patch.id"
                                 />
                                 <span>
                                     <span class="font-medium">{{ patch.name }}</span>
-                                    <span class="block text-xs text-slate-500">
+                                    <span class="block text-xs text-fg-subtle">
                                         {{ patch.target_label }} ·
                                         <code class="font-mono">{{ patch.target_path }}</code>
                                     </span>
                                     <span
                                         v-if="patch.last_check_ok === false"
-                                        class="block text-xs text-rose-700"
+                                        class="block text-xs text-danger-text"
                                     >
                                         Last dry run failed: {{ patch.last_check_detail }}
                                     </span>
@@ -248,15 +311,18 @@ const confirm = async () => {
                     </ul>
                 </CardPanel>
 
-                <div class="flex justify-end">
-                    <button
-                        type="button"
-                        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+                <div class="flex flex-wrap items-center justify-end gap-3">
+                    <p v-if="selectedIds.length > 0" class="numeric me-auto text-sm text-fg-subtle">
+                        {{ pluralise(selectedIds.length, 'checkout') }} selected
+                    </p>
+                    <AppButton
+                        variant="primary"
+                        trailing-icon="chevron-right"
                         :disabled="selectedIds.length === 0"
                         @click="step = 'options'"
                     >
-                        Continue — {{ selectedIds.length }} selected
-                    </button>
+                        Choose where it goes
+                    </AppButton>
                 </div>
             </template>
 
@@ -272,53 +338,42 @@ const confirm = async () => {
                     />
                 </CardPanel>
 
-                <div class="flex justify-between">
-                    <button type="button" class="text-sm text-slate-600 underline" @click="step = 'pick'">
-                        Back
-                    </button>
-                    <button
-                        type="button"
-                        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-                        :disabled="busy"
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <AppButton variant="ghost" icon="arrow-left" @click="step = 'pick'">Back to selection</AppButton>
+                    <AppButton
+                        variant="primary"
+                        trailing-icon="chevron-right"
+                        :loading="busy"
                         @click="review"
                     >
-                        {{ busy ? 'Planning…' : 'Review the plan' }}
-                    </button>
+                        Review the plan
+                    </AppButton>
                 </div>
             </template>
 
             <template v-else>
                 <CardPanel
-                    :title="`Review — ${plan.call_count} Salt call(s)`"
+                    :title="`Review — ${pluralise(plan.call_count, 'Salt call')}`"
                     subtitle="This is the exact sequence that will run, in order."
                 >
                     <PlanReview :plan="plan" />
                 </CardPanel>
 
-                <div class="flex justify-between">
-                    <button type="button" class="text-sm text-slate-600 underline" @click="step = 'options'">
-                        Back
-                    </button>
-                    <button
-                        type="button"
-                        class="rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                        :class="plan.removes_anything ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-900 hover:bg-slate-700'"
-                        :disabled="busy"
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <AppButton variant="ghost" icon="arrow-left" @click="step = 'options'">Back to options</AppButton>
+                    <!-- The last button names the consequence rather than saying
+                         "Confirm": this is the click that reaches production, and it
+                         has to be answerable without scrolling back up. -->
+                    <AppButton
+                        :variant="plan.removes_anything ? 'danger' : 'primary'"
+                        :loading="busy"
                         @click="confirm"
                     >
-                        {{
-                            busy
-                                ? 'Queueing…'
-                                : plan.removes_anything
-                                  ? 'Remove from the fleet'
-                                  : settings.stagingOnly
-                                    ? 'Deploy to staging'
-                                    : `Deploy to ${settings.allServers ? 'all appservers' : `${settings.servers.length} appserver(s)`}`
-                        }}
-                    </button>
+                        {{ confirmLabel }}
+                    </AppButton>
                 </div>
 
-                <p class="text-xs text-slate-500">
+                <p class="text-xs text-fg-subtle">
                     Queued as a single job on the worker. You will land on its live view;
                     {{ session.settings.staging_host }} runs the preparation steps.
                 </p>

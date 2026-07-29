@@ -3,10 +3,12 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 
 import { ApiError, api, endpoint } from '../../../api';
+import AppButton from '../../../components/AppButton.vue';
+import AppIcon from '../../../components/AppIcon.vue';
 import CardPanel from '../../../components/CardPanel.vue';
 import LoadState from '../../../components/LoadState.vue';
 import RepoFileBrowser from '../components/RepoFileBrowser.vue';
-import StatusBadge from '../components/StatusBadge.vue';
+import StatusBadge from '../../../components/StatusBadge.vue';
 import { relative, shortRef } from '../../../format';
 import { flash, flashError } from '../../../store';
 
@@ -52,6 +54,13 @@ const browsableCheckouts = computed(() => (repository.value?.checkouts ?? []).fi
 
 const browseCheckoutId = ref('');
 
+/** The three grants, as a list, so the panel renders them the same way each time. */
+const abilities = computed(() => [
+    { label: 'Deploy this repository', granted: repository.value?.can.deploy === true },
+    { label: 'Undeploy this repository', granted: repository.value?.can.undeploy === true },
+    { label: 'Manage the registry entry', granted: repository.value?.can.manage === true },
+]);
+
 watch(browsableCheckouts, (checkouts) => {
     if (browseCheckoutId.value === '' && checkouts.length > 0) {
         browseCheckoutId.value = String(checkouts[0].id);
@@ -78,26 +87,40 @@ const deactivate = async () => {
 <template>
     <LoadState :loading="loading" :error="error" @retry="load">
         <div v-if="repository" class="space-y-6">
-            <header class="flex flex-wrap items-center gap-3">
-                <RouterLink to="/deployments/repositories" class="text-sm text-slate-500 underline">Repositories</RouterLink>
-                <h1 class="text-lg font-semibold tracking-tight">{{ repository.name }}</h1>
-                <span class="rounded bg-slate-100 px-2 py-0.5 text-xs">{{ repository.type_label }}</span>
-                <span v-if="repository.imported" class="rounded bg-slate-100 px-2 py-0.5 text-xs">
-                    imported {{ relative(repository.discovered_at) }}
-                </span>
+            <header>
+                <AppButton to="/deployments/repositories" variant="ghost" icon="arrow-left" class="-ms-3 mb-2">
+                    Repositories
+                </AppButton>
 
-                <div v-if="repository.can.manage" class="ml-auto flex items-center gap-3 text-sm">
-                    <RouterLink :to="`/deployments/repositories/${repository.id}/edit`" class="text-slate-600 underline">
-                        Edit
-                    </RouterLink>
-                    <button
-                        type="button"
-                        class="text-rose-700 underline disabled:opacity-50"
-                        :disabled="busy"
-                        @click="deactivate"
-                    >
-                        Deactivate
-                    </button>
+                <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <h1 class="text-xl font-semibold break-all">{{ repository.name }}</h1>
+                        <span
+                            class="rounded-full border border-line-strong bg-sunken px-2 py-0.5 text-xs text-fg-muted"
+                        >
+                            {{ repository.type_label }}
+                        </span>
+                        <span
+                            v-if="repository.imported"
+                            class="rounded-full border border-line-strong bg-sunken px-2 py-0.5 text-xs text-fg-muted"
+                        >
+                            Imported {{ relative(repository.discovered_at) }}
+                        </span>
+                    </div>
+
+                    <div v-if="repository.can.manage" class="flex flex-wrap items-center gap-2 text-sm">
+                        <RouterLink :to="`/deployments/repositories/${repository.id}/edit`" class="link-quiet">
+                            Edit
+                        </RouterLink>
+                        <button
+                            type="button"
+                            class="inline-flex min-h-8 items-center rounded-md px-2 text-danger-text hover:bg-danger-surface disabled:opacity-50"
+                            :disabled="busy"
+                            @click="deactivate"
+                        >
+                            Deactivate
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -105,54 +128,66 @@ const deactivate = async () => {
                 <CardPanel title="Registry" class="lg:col-span-2">
                     <dl class="grid gap-3 text-sm sm:grid-cols-2">
                         <div class="sm:col-span-2">
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Remote</dt>
+                            <dt class="label-caps">Remote</dt>
                             <dd class="font-mono text-xs break-all">{{ repository.git_url }}</dd>
                         </div>
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Default branch</dt>
+                            <dt class="label-caps">Default branch</dt>
                             <dd class="font-mono text-xs">{{ repository.default_branch }}</dd>
                         </div>
                         <div>
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">In use by the farm</dt>
-                            <dd>{{ repository.in_use ? 'yes' : 'no' }}</dd>
+                            <dt class="label-caps">In use by the farm</dt>
+                            <dd>{{ repository.in_use ? 'Yes' : 'No' }}</dd>
                         </div>
                         <div v-if="repository.manifest?.version">
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Declared version</dt>
+                            <dt class="label-caps">Declared version</dt>
                             <dd class="font-mono text-xs">{{ repository.manifest.version }}</dd>
                         </div>
                         <div v-if="repository.manifest?.['license-name']">
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Licence</dt>
+                            <dt class="label-caps">Licence</dt>
                             <dd>{{ repository.manifest['license-name'] }}</dd>
                         </div>
                         <div v-if="repository.manifest?.requires_mediawiki">
-                            <dt class="text-xs tracking-wide text-slate-500 uppercase">Requires MediaWiki</dt>
+                            <dt class="label-caps">Requires MediaWiki</dt>
                             <dd class="font-mono text-xs">{{ repository.manifest.requires_mediawiki }}</dd>
                         </div>
                     </dl>
                 </CardPanel>
 
                 <CardPanel title="What you may do">
-                    <ul class="space-y-1 text-sm">
-                        <li :class="repository.can.deploy ? 'text-emerald-700' : 'text-slate-400'">
-                            {{ repository.can.deploy ? '✓' : '✗' }} deploy
-                        </li>
-                        <li :class="repository.can.undeploy ? 'text-emerald-700' : 'text-slate-400'">
-                            {{ repository.can.undeploy ? '✓' : '✗' }} undeploy
-                        </li>
-                        <li :class="repository.can.manage ? 'text-emerald-700' : 'text-slate-400'">
-                            {{ repository.can.manage ? '✓' : '✗' }} manage the registry entry
+                    <!-- Colour, an icon and the word: whether you may deploy this
+                         repository is not something to convey with a green tick
+                         alone. -->
+                    <ul class="space-y-2 text-sm">
+                        <li
+                            v-for="ability in abilities"
+                            :key="ability.label"
+                            class="flex items-start gap-2"
+                            :class="ability.granted ? 'text-fg' : 'text-fg-subtle'"
+                        >
+                            <AppIcon
+                                :name="ability.granted ? 'check' : 'close'"
+                                class="mt-0.5 size-4 shrink-0"
+                                :class="ability.granted ? 'text-success-text' : 'text-fg-faint'"
+                            />
+                            <span>
+                                {{ ability.label }}
+                                <span class="sr-only">— {{ ability.granted ? 'allowed' : 'not allowed' }}</span>
+                            </span>
                         </li>
                     </ul>
-                    <p v-if="repository.scoped" class="mt-2 text-xs text-violet-700">
+                    <p v-if="repository.scoped" class="mt-4 border-t border-line pt-3 text-xs text-pretty text-fg-muted">
                         This repository is permission-scoped: only the listed users and roles may act on it, whatever
-                        their coarse deploy.{{ repository.type }} grant says.
+                        their coarse
+                        <code class="font-mono">deploy.{{ repository.type }}</code>
+                        grant says.
                     </p>
                 </CardPanel>
             </div>
 
             <CardPanel title="Checkouts" subtitle="One per core version, each with its own pin" flush>
                 <table class="w-full text-sm">
-                    <thead class="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500 uppercase">
+                    <thead class="label-caps border-b border-line text-start">
                         <tr>
                             <th class="px-5 py-2">Version</th>
                             <th class="px-5 py-2">Status</th>
@@ -161,32 +196,32 @@ const deactivate = async () => {
                             <th class="px-5 py-2">Path</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100">
+                    <tbody class="divide-y divide-line">
                         <tr v-for="checkout in repository.checkouts ?? []" :key="checkout.id" class="align-top">
                             <td class="px-5 py-2 font-medium">{{ checkout.version_label }}</td>
                             <td class="px-5 py-2">
-                                <StatusBadge :label="checkout.status_label" :classes="checkout.status_classes" />
+                                <StatusBadge :label="checkout.status_label" :tone="checkout.status_tone" />
                             </td>
                             <td class="px-5 py-2">
                                 <code class="font-mono text-xs">{{ checkout.resolved_ref ?? '—' }}</code>
-                                <span class="block text-xs text-slate-500">{{ checkout.ref_mode_summary }}</span>
+                                <span class="block text-xs text-fg-subtle">{{ checkout.ref_mode_summary }}</span>
                             </td>
                             <td class="px-5 py-2">
                                 <template v-if="checkout.observed_at">
-                                    <code class="font-mono text-xs" :class="checkout.has_ref_drift ? 'text-amber-700' : ''">
+                                    <code class="font-mono text-xs" :class="checkout.has_ref_drift ? 'text-warning-text' : ''">
                                         {{ shortRef(checkout.observed_ref) }}
                                     </code>
-                                    <span class="block text-xs text-slate-400">{{ relative(checkout.observed_at) }}</span>
-                                    <span v-if="checkout.has_ref_drift" class="block text-xs text-amber-700">
+                                    <span class="block text-xs text-fg-subtle">{{ relative(checkout.observed_at) }}</span>
+                                    <span v-if="checkout.has_ref_drift" class="block text-xs text-warning-text">
                                         drifted from the pin
                                     </span>
                                 </template>
-                                <span v-else class="text-xs text-slate-400">not scanned</span>
+                                <span v-else class="text-xs text-fg-subtle">not scanned</span>
                             </td>
-                            <td class="px-5 py-2 font-mono text-xs text-slate-500">{{ checkout.path }}</td>
+                            <td class="px-5 py-2 font-mono text-xs text-fg-subtle">{{ checkout.path }}</td>
                         </tr>
                         <tr v-if="(repository.checkouts ?? []).length === 0">
-                            <td colspan="5" class="px-5 py-4 text-slate-500">
+                            <td colspan="5" class="px-5 py-4 text-fg-subtle">
                                 No checkouts. This repository is registered but not checked out anywhere.
                             </td>
                         </tr>
@@ -203,25 +238,25 @@ const deactivate = async () => {
                             : 'Ref discovery is turned off in this install, so refs are free text in the wizard.'
                     "
                 >
-                    <p v-if="data.refs.branches.length === 0" class="text-sm text-slate-500">
+                    <p v-if="data.refs.branches.length === 0" class="text-sm text-fg-subtle">
                         Nothing to list — no checkout of this repository is on disk to read refs from.
                     </p>
                     <ul v-else class="max-h-72 space-y-1 overflow-auto text-sm">
                         <li v-for="ref in data.refs.branches" :key="ref.value" class="flex flex-wrap gap-2">
                             <code class="font-mono text-xs">{{ ref.value }}</code>
-                            <span v-if="ref.is_default" class="text-xs text-emerald-700">default</span>
-                            <span class="ml-auto text-xs text-slate-400">{{ ref.date }}</span>
+                            <span v-if="ref.is_default" class="text-xs text-success-text">default</span>
+                            <span class="ms-auto text-xs text-fg-subtle">{{ ref.date }}</span>
                         </li>
                     </ul>
                 </CardPanel>
 
                 <CardPanel title="Recent commits" subtitle="On the checkout's current branch">
-                    <p v-if="data.refs.commits.length === 0" class="text-sm text-slate-500">Nothing to list.</p>
+                    <p v-if="data.refs.commits.length === 0" class="text-sm text-fg-subtle">Nothing to list.</p>
                     <ul v-else class="max-h-72 space-y-2 overflow-auto text-sm">
                         <li v-for="ref in data.refs.commits" :key="ref.value">
                             <code class="font-mono text-xs">{{ ref.short }}</code>
-                            <span class="ml-1">{{ ref.subject }}</span>
-                            <span class="block text-xs text-slate-400">{{ ref.author }} · {{ ref.date }}</span>
+                            <span class="ms-1">{{ ref.subject }}</span>
+                            <span class="block text-xs text-fg-subtle">{{ ref.author }} · {{ ref.date }}</span>
                         </li>
                     </ul>
                 </CardPanel>
@@ -231,7 +266,7 @@ const deactivate = async () => {
                 title="Browse files"
                 subtitle="Read-only exploration of a checkout's tree at any branch, tag or commit — not part of deploying."
             >
-                <p v-if="browsableCheckouts.length === 0" class="text-sm text-slate-500">
+                <p v-if="browsableCheckouts.length === 0" class="text-sm text-fg-subtle">
                     No present checkout to browse. Deploy this repository somewhere first.
                 </p>
                 <template v-else>
@@ -243,8 +278,8 @@ const deactivate = async () => {
                             class="rounded border px-2 py-0.5 text-xs font-medium"
                             :class="
                                 String(checkout.id) === browseCheckoutId
-                                    ? 'border-slate-900 bg-slate-900 text-white'
-                                    : 'border-slate-300 text-slate-600'
+                                    ? 'border-accent bg-accent text-accent-fg'
+                                    : 'border-line-strong text-fg-muted'
                             "
                             @click="browseCheckoutId = String(checkout.id)"
                         >

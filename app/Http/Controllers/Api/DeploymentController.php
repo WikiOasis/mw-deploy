@@ -44,7 +44,7 @@ final class DeploymentController extends Controller
                 static fn (DeploymentStatus $status): array => [
                     'value' => $status->value,
                     'label' => $status->label(),
-                    'classes' => $status->badgeClasses(),
+                    'tone' => $status->badgeTone(),
                 ],
                 DeploymentStatus::cases(),
             ),

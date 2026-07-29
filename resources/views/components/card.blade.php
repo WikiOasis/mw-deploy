@@ -1,16 +1,18 @@
+{{-- The Blade twin of resources/js/components/CardPanel.vue. Same shape, same
+     tokens, so the TOTP pages and the console's screens agree. --}}
 @props(['title' => null, 'subtitle' => null])
 
-<section {{ $attributes->merge(['class' => 'rounded-lg border border-slate-200 bg-white shadow-sm']) }}>
+<section {{ $attributes->merge(['class' => 'panel overflow-hidden']) }}>
     @if ($title !== null)
-        <header class="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-200 px-5 py-3">
-            <div>
-                <h2 class="font-semibold tracking-tight">{{ $title }}</h2>
+        <header class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-line px-5 py-3.5">
+            <div class="min-w-0">
+                <h2 class="text-sm font-semibold text-fg">{{ $title }}</h2>
                 @if ($subtitle !== null)
-                    <p class="mt-0.5 text-sm text-slate-500">{{ $subtitle }}</p>
+                    <p class="mt-1 max-w-prose text-xs text-pretty text-fg-subtle">{{ $subtitle }}</p>
                 @endif
             </div>
             @isset($actions)
-                <div class="flex items-center gap-2 text-sm">{{ $actions }}</div>
+                <div class="flex flex-none items-center gap-2">{{ $actions }}</div>
             @endisset
         </header>
     @endif

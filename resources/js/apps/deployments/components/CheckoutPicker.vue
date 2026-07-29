@@ -2,9 +2,9 @@
 import { computed, reactive, ref } from 'vue';
 
 import { api, endpoint } from '../../../api';
-import { relative, shortRef } from '../../../format';
+import { pluralise, relative, shortRef } from '../../../format';
 import SearchableCombobox from '../../../components/SearchableCombobox.vue';
-import StatusBadge from './StatusBadge.vue';
+import StatusBadge from '../../../components/StatusBadge.vue';
 
 /**
  * The checkout picker, shared by the deploy and undeploy wizards.
@@ -214,7 +214,7 @@ const selectedCountFor = (repository) =>
 
 <template>
     <div>
-        <div v-if="repositories.length === 0" class="text-sm text-slate-500">
+        <div v-if="repositories.length === 0" class="text-sm text-fg-subtle">
             <template v-if="isUndeploy">
                 There is nothing you have permission to remove. Removal is a separate grant from deployment —
                 ask an administrator for <code class="font-mono">deploy.undeploy_extension</code> or
@@ -230,16 +230,16 @@ const selectedCountFor = (repository) =>
                 v-model="filter"
                 type="search"
                 placeholder="Filter by name…"
-                class="block w-full max-w-sm rounded-md bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                class="input-control block w-full max-w-sm"
             />
         </div>
 
         <section v-for="group in byType" :key="group.value" class="mb-6 last:mb-0">
-            <h3 class="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+            <h3 class="label-caps mb-2">
                 {{ group.plural_label }}
             </h3>
 
-            <ul class="divide-y divide-slate-100 rounded-md border border-slate-200">
+            <ul class="divide-y divide-line rounded-md border border-line">
                 <template v-for="repository in group.repositories" :key="repository.id">
                     <li v-if="matches(repository)" class="p-3">
                         <div class="flex flex-wrap items-center gap-2">
@@ -247,9 +247,9 @@ const selectedCountFor = (repository) =>
                                 type="button"
                                 class="rounded border px-2 py-0.5 text-xs font-medium"
                                 :class="{
-                                    'border-slate-900 bg-slate-900 text-white': repositoryState(repository) === 'all',
-                                    'border-slate-400 bg-slate-100 text-slate-700': repositoryState(repository) === 'some',
-                                    'border-slate-300 text-slate-600': repositoryState(repository) === 'none',
+                                    'border-accent bg-accent text-accent-fg': repositoryState(repository) === 'all',
+                                    'border-accent-line bg-accent-subtle text-accent-text': repositoryState(repository) === 'some',
+                                    'border-line-strong text-fg-muted': repositoryState(repository) === 'none',
                                 }"
                                 @click="toggleRepository(repository)"
                             >
@@ -257,38 +257,38 @@ const selectedCountFor = (repository) =>
                             </button>
 
                             <span class="text-sm font-medium">{{ repository.name }}</span>
-                            <span v-if="repository.manifest_name" class="text-xs text-slate-400">
+                            <span v-if="repository.manifest_name" class="text-xs text-fg-subtle">
                                 “{{ repository.manifest_name }}”
                             </span>
-                            <span class="text-xs text-slate-500">
-                                {{ repository.checkouts.length }} version(s)
+                            <span class="text-xs text-fg-subtle">
+                                {{ pluralise(repository.checkouts.length, 'version') }}
                             </span>
                             <span
                                 v-if="selectedCountFor(repository) > 0"
-                                class="ml-auto text-xs text-slate-500"
+                                class="ms-auto text-xs text-fg-subtle"
                             >
                                 {{ selectedCountFor(repository) }} selected
                             </span>
                         </div>
 
-                        <ul class="mt-2 space-y-2 pl-2">
+                        <ul class="mt-2 space-y-2 ps-2">
                             <li
                                 v-for="checkout in repository.checkouts"
                                 :key="checkout.id"
-                                class="rounded border border-slate-100 p-2"
-                                :class="isSelected(checkout.id) ? 'bg-slate-50' : ''"
+                                class="rounded border border-line p-2"
+                                :class="isSelected(checkout.id) ? 'bg-sunken' : ''"
                             >
                                 <label class="flex flex-wrap items-center gap-2 text-sm">
                                     <input
                                         type="checkbox"
-                                        class="rounded border-slate-300"
+                                        class="size-4 rounded border-line-strong"
                                         :checked="isSelected(checkout.id)"
                                         @change="toggle(checkout)"
                                     />
                                     <span class="font-medium">{{ checkout.version_label }}</span>
-                                    <code class="font-mono text-xs text-slate-500">{{ checkout.path }}</code>
-                                    <StatusBadge :label="checkout.status_label" :classes="checkout.status_classes" />
-                                    <span v-if="!isUndeploy" class="text-xs text-slate-500">
+                                    <code class="font-mono text-xs text-fg-subtle">{{ checkout.path }}</code>
+                                    <StatusBadge :label="checkout.status_label" :tone="checkout.status_tone" />
+                                    <span v-if="!isUndeploy" class="text-xs text-fg-subtle">
                                         {{ checkout.ref_mode_summary }}
                                     </span>
                                 </label>
@@ -298,7 +298,7 @@ const selectedCountFor = (repository) =>
                                      move the tree off the ref it is currently on. -->
                                 <p
                                     v-if="!isUndeploy && checkout.has_ref_drift"
-                                    class="mt-1 pl-6 text-xs text-amber-700"
+                                    class="mt-1 ps-6 text-xs text-warning-text"
                                 >
                                     Staging is on <code class="font-mono">{{ shortRef(checkout.observed_ref) }}</code>,
                                     not the pinned <code class="font-mono">{{ checkout.resolved_ref }}</code>.
@@ -306,16 +306,16 @@ const selectedCountFor = (repository) =>
 
                                 <div
                                     v-if="isSelected(checkout.id) && !isUndeploy"
-                                    class="mt-2 flex flex-wrap items-end gap-3 pl-6"
+                                    class="mt-2 flex flex-wrap items-end gap-3 ps-6"
                                 >
-                                    <div class="flex rounded-md border border-slate-300 text-xs">
+                                    <div class="flex rounded-md border border-line-strong text-xs">
                                         <button
                                             type="button"
                                             class="px-2 py-1"
                                             :class="
                                                 selection[checkout.id].refType === 'branch'
-                                                    ? 'bg-slate-900 text-white'
-                                                    : 'text-slate-600'
+                                                    ? 'bg-accent text-accent-fg'
+                                                    : 'text-fg-muted'
                                             "
                                             @click="setRefType(checkout, 'branch')"
                                         >
@@ -326,8 +326,8 @@ const selectedCountFor = (repository) =>
                                             class="px-2 py-1"
                                             :class="
                                                 selection[checkout.id].refType === 'commit'
-                                                    ? 'bg-slate-900 text-white'
-                                                    : 'text-slate-600'
+                                                    ? 'bg-accent text-accent-fg'
+                                                    : 'text-fg-muted'
                                             "
                                             @click="setRefType(checkout, 'commit')"
                                         >
@@ -357,10 +357,10 @@ const selectedCountFor = (repository) =>
                                         />
                                     </div>
 
-                                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                                    <div class="flex items-center gap-2 text-xs text-fg-subtle">
                                         <button
                                             type="button"
-                                            class="rounded border border-slate-300 px-2 py-1 font-medium text-slate-700 disabled:opacity-50"
+                                            class="rounded border border-line-strong px-2 py-1 font-medium text-fg disabled:opacity-50"
                                             :disabled="fetching[checkout.id]"
                                             @click="fetchLatest(checkout)"
                                         >

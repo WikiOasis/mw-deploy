@@ -103,15 +103,17 @@ enum ImportAction: string
         };
     }
 
-    public function badgeClasses(): string
+    /** See App\Enums\DeploymentStatus::badgeTone() for why this is a tone. */
+    public function badgeTone(): string
     {
         return match ($this) {
-            self::CreateRepository, self::CreateVersion => 'bg-sky-100 text-sky-800 ring-sky-300',
-            self::CreateCheckout, self::AdoptCheckout => 'bg-emerald-100 text-emerald-800 ring-emerald-300',
-            self::Repin, self::UpdateUrl => 'bg-amber-100 text-amber-900 ring-amber-300',
-            self::MarkUndeployed => 'bg-orange-100 text-orange-900 ring-orange-300',
-            self::InSync => 'bg-slate-100 text-slate-500 ring-slate-300',
-            self::Unimportable => 'bg-rose-100 text-rose-900 ring-rose-300',
+            self::CreateRepository, self::CreateVersion => 'info',
+            self::CreateCheckout, self::AdoptCheckout => 'success',
+            // Changing a pin or a remote, and marking something gone, all edit a
+            // row that already exists — the reviewable half of an import plan.
+            self::Repin, self::UpdateUrl, self::MarkUndeployed => 'warning',
+            self::InSync => 'neutral',
+            self::Unimportable => 'danger',
         };
     }
 }
