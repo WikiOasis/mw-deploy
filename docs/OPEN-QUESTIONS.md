@@ -45,23 +45,49 @@ acceptable, or whether the farm already has an NFS export to point at instead. S
 **Decided in code: queued, fleet-wide.** Staging is a single working tree, so two
 concurrent deployments would stomp the same checkout.
 
-`RunDeployment` implements `ShouldBeUnique` with a constant key:
+The first cut of this made `RunDeployment` `ShouldBeUnique` with a constant key,
+on the theory that a second dispatch would just wait its turn. It didn't:
+`ShouldBeUnique`'s lock is acquired at *dispatch* time and only released once the
+job finishes, so a deployment created while one was already running failed to
+even reach the queue — no error, no job row, no retry — and sat at `Pending`
+forever even after the first one finished normally and the lock came free,
+because nothing ever re-dispatched it. `ForceFailDeployment` existed only to claw
+back the crashed-worker case; the healthy-worker case had no recovery at all.
+
+`RunDeployment` is now a plain queued job. The staging tree is instead guarded by
+a `Cache::lock('mwdeploy-staging-tree', 6 * 3600)` acquired and released inside
+`handle()` itself, wrapped around the actual run:
 
 ```php
-public function uniqueId(): string
-{
-    return 'mwdeploy-staging-tree';   // the shared resource, not the deployment
+$lock = Cache::lock(self::LOCK_KEY, self::LOCK_TTL);
+
+if (! $lock->get()) {
+    // only reachable with more than one worker — a misconfiguration, not a
+    // normal queueing outcome
+    ...
+    return;
+}
+
+try {
+    $runner->run($deployment);
+} finally {
+    $lock->release();
 }
 ```
 
-The lock is deliberately keyed on the *staging tree*, not the deployment id — the
-constraint being protected is the shared checkout, so a second deployment queued
-while one is running simply waits its turn rather than being rejected. The
-dashboard says as much ("Staging is a single working tree, so deployments run one
-at a time").
+Because the lock's whole lifetime is this one method call, every dispatch always
+reaches the queue — a deployment created while another is running simply sits
+there, and the single worker (`docs/OPERATIONS.md`, "Only ever run one worker")
+picks it up the moment it is free. The lock itself is now a pure safety net
+against a second, misconfigured worker running two deployments against the same
+tree at once, not the mechanism that makes deployments queue in the first place.
 
-`uniqueFor` is 6 hours, which is a backstop against a crashed worker holding the
-lock forever, not an expected deploy duration.
+The 6-hour TTL is still a backstop against a crashed worker holding the lock
+forever, not an expected deploy duration; `ForceFailDeployment` still exists to
+release it immediately rather than waiting out the TTL, and `RunDeployment`'s own
+`failed()` now does the same automatically whenever the queue's own
+`retry_after` handling reclaims and fails a crashed job, without needing an
+operator to click anything.
 
 ---
 

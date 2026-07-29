@@ -12,6 +12,7 @@ use App\Models\Deployment;
 use App\Models\DeploymentStep;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -140,22 +141,36 @@ final class DeploymentControlTest extends TestCase
     }
 
     #[Test]
-    public function force_failing_a_stuck_deployment_releases_the_fleet_wide_deploy_lock(): void
+    public function a_deployment_created_while_another_is_running_still_reaches_the_queue(): void
     {
         Queue::fake();
 
+        Deployment::factory()->status(DeploymentStatus::Running)->create();
+
+        // Standing in for the lock RunDeployment::handle() holds for a real
+        // run's whole lifetime: acquired and released inside that one method
+        // call, never at dispatch time, which is exactly what lets this
+        // dispatch reach the queue instead of silently vanishing.
+        $lock = Cache::lock(RunDeployment::LOCK_KEY, RunDeployment::LOCK_TTL);
+        $this->assertTrue($lock->get());
+
+        $queued = Deployment::factory()->status(DeploymentStatus::Pending)->create();
+        RunDeployment::dispatch($queued->getKey());
+
+        Queue::assertPushed(RunDeployment::class, 1);
+
+        $lock->release();
+    }
+
+    #[Test]
+    public function force_failing_a_stuck_deployment_releases_the_staging_tree_lock(): void
+    {
         $stuck = Deployment::factory()->status(DeploymentStatus::Running)->create();
 
-        // Claims the fleet-wide lock, standing in for the original dispatch that
-        // put $stuck's job on the queue in the first place.
-        RunDeployment::dispatch($stuck->getKey());
-        Queue::assertPushed(RunDeployment::class, 1);
-
-        // A second deployment's job cannot even reach the queue while the lock is
-        // held — this is the silent failure this feature exists to recover from.
-        $blocked = Deployment::factory()->status(DeploymentStatus::Pending)->create();
-        RunDeployment::dispatch($blocked->getKey());
-        Queue::assertPushed(RunDeployment::class, 1);
+        // Standing in for the lock a real run holds for its whole lifetime — a
+        // crashed worker leaves this held with nothing left to release it.
+        $lock = Cache::lock(RunDeployment::LOCK_KEY, RunDeployment::LOCK_TTL);
+        $this->assertTrue($lock->get());
 
         $this->actingAs($this->userWithPermissions([Permissions::DEPLOY_FORCE_FAIL]))
             ->postJson(route('api.deployments.force-fail', $stuck))
@@ -165,9 +180,9 @@ final class DeploymentControlTest extends TestCase
         $this->assertStringContainsString('Force-failed', (string) $stuck->fresh()->failure_reason);
         $this->assertNotNull($stuck->fresh()->finished_at);
 
-        // The lock is free again: a fresh dispatch now actually lands.
-        RunDeployment::dispatch($blocked->getKey());
-        Queue::assertPushed(RunDeployment::class, 2);
+        // The lock is free again: whatever is queued behind $stuck can now
+        // acquire it on its own turn.
+        $this->assertTrue(Cache::lock(RunDeployment::LOCK_KEY, RunDeployment::LOCK_TTL)->get());
     }
 
     #[Test]

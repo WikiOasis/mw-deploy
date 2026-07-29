@@ -18,6 +18,7 @@ use App\Services\Deployment\DeploymentRunner;
 use App\Services\Salt\Testing\FakeSaltClient;
 use App\Support\Permissions;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\AutoAnsweringDecisionGate;
@@ -104,6 +105,52 @@ final class DeploymentEndToEndTest extends TestCase
         $this->assertGreaterThan(0, count($this->salt->calls()));
         $this->salt->assertRan(StepName::GitCheckout, 'staging');
         $this->salt->assertRan(StepName::RsyncRemote, $server->hostname);
+    }
+
+    #[Test]
+    public function a_job_that_cannot_acquire_the_staging_tree_lock_fails_without_touching_salt(): void
+    {
+        $echo = $this->extension('Echo', $this->version, 'REL1_45');
+        $server = DeployTarget::factory()->create();
+        $deployer = $this->deployer();
+
+        $plan = $this->actingAs($deployer)
+            ->postJson(route('api.deployments.plan'), [
+                'intent' => 'deploy',
+                'items' => [[
+                    'repository_version_id' => $echo->getKey(),
+                    'ref_type' => 'branch',
+                    'ref_value' => 'REL1_45',
+                ]],
+                'servers' => [$server->hostname],
+                'parallel' => 1,
+                'staging_only' => false,
+            ])
+            ->assertOk()
+            ->json('payload');
+
+        $response = $this->actingAs($deployer)
+            ->postJson(route('api.deployments.store'), $plan)
+            ->assertCreated();
+
+        $deployment = Deployment::query()->findOrFail($response->json('id'));
+
+        // Standing in for another worker genuinely mid-deployment right now —
+        // "only ever run one worker" (docs/OPERATIONS.md) means this should only
+        // ever happen under a misconfiguration, which is exactly what this
+        // guards against rather than letting two runs stomp the same checkout.
+        $lock = Cache::lock(RunDeployment::LOCK_KEY, RunDeployment::LOCK_TTL);
+        $this->assertTrue($lock->get());
+
+        $this->runJob($deployment);
+
+        $deployment->refresh();
+        $this->assertSame(DeploymentStatus::Failed, $deployment->status);
+        $this->assertStringContainsString('running concurrently', (string) $deployment->failure_reason);
+        $this->assertSame(0, $deployment->steps()->count());
+        $this->assertSame([], $this->salt->calls());
+
+        $lock->release();
     }
 
     #[Test]

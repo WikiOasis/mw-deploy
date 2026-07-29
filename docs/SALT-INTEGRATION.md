@@ -458,8 +458,10 @@ Three things about the worker unit that are load-bearing:
   would re-run the whole pipeline against a staging tree that is already checked
   out to the new ref.
 - **Exactly one worker.** Two workers cannot run two deployments concurrently
-  (`RunDeployment` is `ShouldBeUnique`), but the lock lives in `CACHE_STORE`, so
-  that only holds while the cache is shared. Do not template this unit into an
+  (`RunDeployment` holds a `Cache::lock` on the staging tree for the life of each
+  run), but the lock lives in `CACHE_STORE`, so that only holds while the cache
+  is shared. Deployments created while one is running are not rejected — they
+  queue normally and wait for this one worker. Do not template this unit into an
   instance unit with `%i`.
 
 Restarting the worker mid-deployment orphans the running deployment: it stays
