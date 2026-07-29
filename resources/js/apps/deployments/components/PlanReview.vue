@@ -7,11 +7,12 @@
  * gets to read the sequence first. The calls come from the same DeploymentPlanner
  * the runner uses, so this is not an approximation of what will happen.
  */
+import { pluralise } from '../../../format';
+
 defineProps({
     plan: { type: Object, required: true },
 });
 </script>
-import { pluralise } from '../../../format';
 
 <template>
     <div class="space-y-5">
