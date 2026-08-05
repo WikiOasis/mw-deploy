@@ -9,8 +9,8 @@ Everything here is about the hosts, not the code. For architecture see the
 | Host | Role | Needs |
 |---|---|---|
 | Salt master (`salt-us-east-021`) | the portal | php-fpm, nginx, MySQL, queue worker, Reverb, `salt` CLI |
-| staging | preparation | `mwdeploy-shim`, git, rsync **daemon**, php (l10n), the staging + production trees |
-| `mw-*` appservers | rollout | `mwdeploy-shim`, rsync, php, curl |
+| staging | preparation | `mwdeploy-shim`, git, rsync **daemon**, php (l10n), composer, node + npm, the staging + production trees |
+| `mw-*` appservers | rollout | `mwdeploy-shim`, rsync, php, curl, composer, node + npm |
 | `proxy-*` | pooling | `mwdeploy-shim`, read/write on the HAProxy stats socket |
 
 The portal never connects to any of these directly. Every arrow is
@@ -30,15 +30,15 @@ Ship it with the same Salt state that manages the rest of the box.
 
 ### Sudo rules
 
-The shim runs git, rsync and patch as the web user so files land owned correctly,
-and re-asserts ownership afterwards (carried over from the original tool's
-`chown www-data` fix-up). It shells to `sudo -n -u www-data …`, so the account
-Salt's minion runs as needs passwordless sudo for those:
+The shim runs git, rsync, patch, composer and npm as the web user so files land
+owned correctly, and re-asserts ownership afterwards (carried over from the
+original tool's `chown www-data` fix-up). It shells to `sudo -n -u www-data …`,
+so the account Salt's minion runs as needs passwordless sudo for those:
 
 ```sudoers
 # /etc/sudoers.d/mwdeploy
 Defaults!/usr/local/bin/mwdeploy-shim !requiretty
-root ALL=(www-data) NOPASSWD: /usr/bin/git, /usr/bin/rsync, /usr/bin/patch, /usr/bin/php, /bin/mkdir
+root ALL=(www-data) NOPASSWD: /usr/bin/git, /usr/bin/rsync, /usr/bin/patch, /usr/bin/php, /usr/bin/composer, /usr/bin/npm, /bin/mkdir
 root ALL=(root)     NOPASSWD: /bin/chown
 ```
 
@@ -87,6 +87,16 @@ provisioned. `git status`/`git log` on an appserver, and MediaWiki's own
 Special:Version, now report the commit actually deployed. The cost is the first
 sync after upgrading being as large as a fresh clone (transferring history the
 appserver never had); every sync after that is an ordinary rsync delta.
+
+`vendor/` and `node_modules/` are gitignored, so a bare checkout is not
+necessarily a loadable one. `git-checkout`, `git-pull` and `repo-register` run
+`composer install`/`npm install` themselves whenever the checkout has a
+`composer.json`/`package.json`, and `rsync-local`/`rsync-remote` do the same in
+whatever path(s) they were restricted to (or the destination root, for a
+full-tree sync) — so staging always has fresh dependencies before it is synced,
+and each rsync target is verified to have them too rather than only relying on
+`vendor/`/`node_modules/` having been carried over from staging by the transfer
+itself.
 
 Using NFS instead is a config change only:
 

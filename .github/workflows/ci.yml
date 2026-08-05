@@ -53,8 +53,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install the tools the shim shells out to
-        run: sudo apt-get update && sudo apt-get install -y patch rsync
+        run: sudo apt-get update && sudo apt-get install -y patch rsync composer
 
       - name: Configure git for the test fixtures
         run: |

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -469,6 +470,145 @@ class RepoRegisterTest(unittest.TestCase):
 
         self.assertEqual(1, code)
         self.assertIn("clone", payload["error"])
+
+
+class DependencyInstallTest(unittest.TestCase):
+    """git-checkout, git-pull, repo-register and both rsync verbs install
+    whatever a composer.json / package.json in the checkout declares."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        root = Path(cls._tmp.name)
+
+        cls.origin = str(root / "origin")
+        os.makedirs(cls.origin)
+
+        git("init", "-q", "-b", "master", ".", cwd=cls.origin)
+        git("config", "user.email", "deploy@wikioasis.org", cwd=cls.origin)
+        git("config", "user.name", "Deploy", cwd=cls.origin)
+
+        (Path(cls.origin) / "composer.json").write_text('{"name": "wikioasis/fixture"}\n')
+        (Path(cls.origin) / "package.json").write_text('{"name": "fixture", "version": "1.0.0"}\n')
+        git("add", "-A", cwd=cls.origin)
+        git("commit", "-qm", "with manifests", cwd=cls.origin)
+
+        cls.plain_origin = str(root / "plain-origin")
+        os.makedirs(cls.plain_origin)
+
+        git("init", "-q", "-b", "master", ".", cwd=cls.plain_origin)
+        git("config", "user.email", "deploy@wikioasis.org", cwd=cls.plain_origin)
+        git("config", "user.name", "Deploy", cwd=cls.plain_origin)
+        (Path(cls.plain_origin) / "a.txt").write_text("one\n")
+        git("add", "-A", cwd=cls.plain_origin)
+        git("commit", "-qm", "no manifests", cwd=cls.plain_origin)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def setUp(self):
+        self._work_tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self._work_tmp.cleanup()
+
+    def _clone(self, origin: str) -> str:
+        work = os.path.join(self._work_tmp.name, "work")
+        subprocess.run(["git", "clone", "-q", origin, work], check=True, capture_output=True)
+
+        return work
+
+    def test_git_checkout_installs_composer_and_npm_dependencies(self):
+        work = self._clone(self.origin)
+
+        code, payload, _ = run_shim("git-checkout", "--path", work, "--ref", "master")
+
+        self.assertEqual(0, code, payload)
+        self.assertIn("composer install", payload["installed"])
+        self.assertIn("npm install", payload["installed"])
+        self.assertTrue((Path(work) / "vendor" / "autoload.php").exists())
+
+    def test_git_checkout_is_a_no_op_without_a_manifest(self):
+        work = self._clone(self.plain_origin)
+
+        code, payload, _ = run_shim("git-checkout", "--path", work, "--ref", "master")
+
+        self.assertEqual(0, code, payload)
+        self.assertEqual([], payload["installed"])
+        self.assertFalse((Path(work) / "vendor").exists())
+
+    def test_git_pull_installs_dependencies_too(self):
+        work = self._clone(self.origin)
+        run_shim("git-checkout", "--path", work, "--ref", "master")
+        shutil.rmtree(Path(work) / "vendor")
+
+        code, payload, _ = run_shim("git-pull", "--path", work)
+
+        self.assertEqual(0, code, payload)
+        self.assertIn("composer install", payload["installed"])
+        self.assertTrue((Path(work) / "vendor" / "autoload.php").exists())
+
+    def test_repo_register_installs_dependencies_on_first_clone(self):
+        target = os.path.join(self._work_tmp.name, "registered")
+
+        code, payload, _ = run_shim("repo-register", "--url", self.origin, "--path", target)
+
+        self.assertEqual(0, code, payload)
+        self.assertIn("composer install", payload["installed"])
+        self.assertTrue((Path(target) / "vendor" / "autoload.php").exists())
+
+    def test_rsync_local_installs_dependencies_in_a_restricted_path(self):
+        src = os.path.join(self._work_tmp.name, "src")
+        dst = os.path.join(self._work_tmp.name, "dst")
+        extension = os.path.join(src, "extensions", "Fixture")
+        os.makedirs(extension)
+        (Path(extension) / "composer.json").write_text('{"name": "wikioasis/fixture"}\n')
+        os.makedirs(dst)
+
+        code, payload, _ = run_shim(
+            "rsync-local", "--src", src + "/", "--dst", dst + "/",
+            "--path", "extensions/Fixture",
+        )
+
+        self.assertEqual(0, code, payload)
+        self.assertEqual(1, len(payload["installed"]))
+        self.assertIn("composer install", payload["installed"][0]["ran"])
+        self.assertTrue((Path(dst) / "extensions" / "Fixture" / "vendor" / "autoload.php").exists())
+
+    def test_rsync_local_without_a_path_restriction_only_checks_the_root(self):
+        # No --path means a full-tree sync names no individual checkout to scope
+        # to, so only the destination root itself is checked — not a recursive
+        # walk of everything rsync just landed.
+        src = os.path.join(self._work_tmp.name, "src2")
+        dst = os.path.join(self._work_tmp.name, "dst2")
+        extension = os.path.join(src, "extensions", "Fixture")
+        os.makedirs(extension)
+        (Path(extension) / "composer.json").write_text('{"name": "wikioasis/fixture"}\n')
+        os.makedirs(dst)
+
+        code, payload, _ = run_shim("rsync-local", "--src", src + "/", "--dst", dst + "/")
+
+        self.assertEqual(0, code, payload)
+        self.assertNotIn("installed", payload)
+        self.assertFalse((Path(dst) / "extensions" / "Fixture" / "vendor").exists())
+
+    def test_rsync_remote_installs_dependencies_in_a_restricted_path(self):
+        src = os.path.join(self._work_tmp.name, "src3")
+        dst = os.path.join(self._work_tmp.name, "dst3")
+        extension = os.path.join(src, "extensions", "Fixture")
+        os.makedirs(extension)
+        (Path(extension) / "package.json").write_text('{"name": "fixture", "version": "1.0.0"}\n')
+        os.makedirs(dst)
+
+        code, payload, _ = run_shim(
+            "rsync-remote", "--src", src + "/", "--dst", dst + "/",
+            "--path", "extensions/Fixture",
+        )
+
+        self.assertEqual(0, code, payload)
+        self.assertEqual(1, len(payload["installed"]))
+        self.assertIn("npm install", payload["installed"][0]["ran"])
 
 
 class PatchApplyTest(unittest.TestCase):

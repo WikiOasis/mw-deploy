@@ -110,7 +110,16 @@ mwdeploy-shim-deps:
       - patch
       - curl
       - python3
+      - composer
+      - nodejs
+      - npm
 ```
+
+`composer` and `nodejs`/`npm` are needed on staging (checkouts) and every
+appserver (`rsync-remote`) — `git-checkout`, `git-pull`, `repo-register`,
+`rsync-local` and `rsync-remote` all run `composer install`/`npm install`
+themselves whenever the checkout (or the path(s) an rsync was restricted to)
+has a `composer.json`/`package.json`.
 
 Then apply to all minions in your top file, or a nodegroup covering
 staging + appservers + proxies.
