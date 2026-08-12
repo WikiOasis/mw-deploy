@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue';
 
 import { api, endpoint } from '../../../api';
 import { pluralise, relative, shortRef } from '../../../format';
+import BulkCheckoutSelect from './BulkCheckoutSelect.vue';
 import SearchableCombobox from '../../../components/SearchableCombobox.vue';
 import StatusBadge from '../../../components/StatusBadge.vue';
 
@@ -10,9 +11,11 @@ import StatusBadge from '../../../components/StatusBadge.vue';
  * The checkout picker, shared by the deploy and undeploy wizards.
  *
  * The unit of selection is a *checkout* — one repository in one core version — so
- * "all versions" is a bulk toggle over a repository's rows rather than a mode.
- * Each row carries its own ref, which is what lets 1.45 go to REL1_45 and 1.46 to
- * REL1_46 in a single submission.
+ * "all versions" is a bulk toggle over a repository's rows rather than a mode, and
+ * BulkCheckoutSelect above is the same idea one axis over: every extension, or
+ * every skin, in one core version. Each row carries its own ref, which is what
+ * lets 1.45 go to REL1_45 and 1.46 to REL1_46 in a single submission — and what
+ * lets a bulk ref be corrected on the one row that needs it.
  */
 const props = defineProps({
     repositories: { type: Array, required: true },
@@ -64,17 +67,28 @@ const isSelected = (id) => Object.prototype.hasOwnProperty.call(selection.value,
 const update = (next) => emit('update:modelValue', next);
 
 /**
- * Selecting a checkout pre-fills its own pin, which is the answer wanted most of
- * the time — the version model exists precisely so nobody retypes REL1_45.
+ * The selection entry for one checkout, pre-filled with its own pin — which is
+ * the answer wanted most of the time, since the version model exists precisely so
+ * nobody retypes REL1_45.
+ *
+ * An explicit `ref` (from the bulk control) overrides the pin, and is typed by
+ * what it looks like rather than by which field it came from: a pasted SHA is a
+ * commit either way, and recording it as a branch would make the rollback
+ * snapshot lie. The server reconciles the same way when it stores the ref.
  */
-const select = (checkout) => {
-    update({
-        ...selection.value,
-        [checkout.id]: {
+const choiceFor = (checkout, ref = null) => {
+    if (ref === null || ref === '') {
+        return {
             refType: checkout.tracked_ref_type === 'commit' ? 'commit' : 'branch',
             refValue: isUndeploy.value ? null : (checkout.resolved_ref ?? ''),
-        },
-    });
+        };
+    }
+
+    return { refType: /^[0-9a-f]{7,40}$/i.test(ref) ? 'commit' : 'branch', refValue: ref };
+};
+
+const select = (checkout) => {
+    update({ ...selection.value, [checkout.id]: choiceFor(checkout) });
 
     if (!isUndeploy.value && branches[checkout.id] === undefined) {
         loadBranches(checkout);
@@ -106,13 +120,38 @@ const toggleRepository = (repository) => {
 
     repository.checkouts.forEach((checkout) => {
         if (selectAll) {
-            next[checkout.id] = {
-                refType: checkout.tracked_ref_type === 'commit' ? 'commit' : 'branch',
-                refValue: isUndeploy.value ? null : (checkout.resolved_ref ?? ''),
-            };
+            next[checkout.id] = choiceFor(checkout);
         } else {
             delete next[checkout.id];
         }
+    });
+
+    update(next);
+};
+
+/**
+ * Every extension — or every skin — in one core version, on one ref.
+ *
+ * Branches are deliberately not pre-loaded for these: a bulk select is a hundred
+ * checkouts, and listing refs for each would be a hundred git calls for lists
+ * nobody has opened. A row whose ref does need looking at loads its own — either by
+ * switching ref type or by "Fetch latest" — and free text is accepted regardless.
+ */
+const applyBulk = ({ checkouts, refValue }) => {
+    const next = { ...selection.value };
+
+    checkouts.forEach((checkout) => {
+        next[checkout.id] = choiceFor(checkout, refValue);
+    });
+
+    update(next);
+};
+
+const clearBulk = ({ checkouts }) => {
+    const next = { ...selection.value };
+
+    checkouts.forEach((checkout) => {
+        delete next[checkout.id];
     });
 
     update(next);
@@ -225,14 +264,26 @@ const selectedCountFor = (repository) =>
             </template>
         </div>
 
-        <div v-else class="mb-4">
-            <input
-                v-model="filter"
-                type="search"
-                placeholder="Filter by name…"
-                class="input-control block w-full max-w-sm"
+        <template v-else>
+            <BulkCheckoutSelect
+                :repositories="repositories"
+                :types="types"
+                :intent="intent"
+                :selection="selection"
+                class="mb-4"
+                @apply="applyBulk"
+                @clear="clearBulk"
             />
-        </div>
+
+            <div class="mb-4">
+                <input
+                    v-model="filter"
+                    type="search"
+                    placeholder="Filter by name…"
+                    class="input-control block w-full max-w-sm"
+                />
+            </div>
+        </template>
 
         <section v-for="group in byType" :key="group.value" class="mb-6 last:mb-0">
             <h3 class="label-caps mb-2">

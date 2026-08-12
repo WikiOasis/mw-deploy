@@ -55,7 +55,11 @@ final class StoreDeploymentRequest extends FormRequest
             'intent' => ['sometimes', Rule::in([DeploymentIntent::Deploy->value, DeploymentIntent::Undeploy->value])],
 
             'items' => ['required', 'array', 'min:1'],
-            'items.*.repository_version_id' => ['required', 'integer', Rule::exists('repository_versions', 'id')],
+            // Existence is checked in withValidator() against the one query that
+            // already loads these models, not with a per-item `exists` rule. An
+            // upgrade submits every extension in a version at once — a hundred-odd
+            // line items — and a rule per item is a query per item.
+            'items.*.repository_version_id' => ['required', 'integer'],
 
             // A removal has no ref to check out, and accepting one would imply the
             // operator had a say in something that is ignored. The string/regex
@@ -112,9 +116,26 @@ final class StoreDeploymentRequest extends FormRequest
             $byId = $this->checkouts()->keyBy('id');
 
             foreach ((array) $this->input('items', []) as $key => $item) {
-                $checkout = $byId->get((int) ($item['repository_version_id'] ?? 0));
+                if (! is_array($item)) {
+                    continue;
+                }
+
+                $id = (int) ($item['repository_version_id'] ?? 0);
+
+                // Missing or non-numeric: the rules above have already said so, and
+                // saying it twice on one field is noise.
+                if ($id === 0) {
+                    continue;
+                }
+
+                $checkout = $byId->get($id);
 
                 if ($checkout === null) {
+                    $validator->errors()->add(
+                        "items.{$key}.repository_version_id",
+                        'That checkout no longer exists.',
+                    );
+
                     continue;
                 }
 
@@ -222,7 +243,7 @@ final class StoreDeploymentRequest extends FormRequest
     private function submittedCheckoutIds(): array
     {
         return collect((array) $this->input('items', []))
-            ->map(fn ($item) => (int) ($item['repository_version_id'] ?? 0))
+            ->map(fn ($item) => is_array($item) ? (int) ($item['repository_version_id'] ?? 0) : 0)
             ->filter()
             ->unique()
             ->values()

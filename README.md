@@ -103,6 +103,12 @@ every time. So "deploy Echo to all versions" sends REL1_45 to 1.45 and REL1_46 t
 1.46 in one action, without the operator retyping anything — and any row can still
 be overridden per deployment.
 
+The same idea one axis over is what a core upgrade is made of: the wizard can select
+**every extension — or every skin — in one version and put them all on one ref**, so
+"put 1.46 on REL1_46" is three answers rather than a hundred ticked boxes. The rows
+it selects are ordinary line items — each appears with its own ref, individually
+editable, and the review step still lists every Salt call before anything runs.
+
 MediaWiki core is modelled the same way: one `mediawiki` repository, whose
 checkouts *are* the `versions/<ver>` trees. Config sits outside the version tree
 and has one unversioned checkout.
