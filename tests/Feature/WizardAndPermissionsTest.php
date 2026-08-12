@@ -144,6 +144,54 @@ final class WizardAndPermissionsTest extends TestCase
     }
 
     #[Test]
+    public function every_extension_in_one_version_can_go_on_one_ref_in_a_single_submission(): void
+    {
+        // The upgrade shape the wizard's bulk selector produces: one type, one
+        // version, one branch, and one line item per checkout — each still carrying
+        // its own ref, because that is what makes a per-row correction possible.
+        $checkouts = collect(['Echo', 'Thanks', 'CodeMirror'])
+            ->map(fn (string $name): RepositoryVersion => $this->extension($name, $this->v46, 'master'));
+
+        // A checkout of the same type in the *other* version must not be dragged in.
+        $echo45 = $this->extension('Echo', $this->v45, 'REL1_45');
+
+        $this->actingAs($this->deployer())
+            ->postJson(route('api.deployments.store'), [
+                'items' => $checkouts->map(fn (RepositoryVersion $checkout): array => [
+                    'repository_version_id' => $checkout->getKey(),
+                    'ref_type' => 'branch',
+                    'ref_value' => 'REL1_46',
+                ])->all(),
+                'parallel' => 1,
+            ])
+            ->assertCreated();
+
+        $refs = Deployment::query()->latest('id')->firstOrFail()->repoRefs;
+
+        $this->assertSame(3, $refs->count());
+        $this->assertSame(['REL1_46'], $refs->pluck('ref_value')->unique()->values()->all());
+        $this->assertNotContains($echo45->getKey(), $refs->pluck('repository_version_id')->all());
+    }
+
+    #[Test]
+    public function a_line_item_naming_a_checkout_that_does_not_exist_is_refused(): void
+    {
+        $echo = $this->extension('Echo', $this->v45);
+
+        $this->actingAs($this->deployer())
+            ->postJson(route('api.deployments.store'), [
+                'items' => [
+                    ['repository_version_id' => $echo->getKey(), 'ref_value' => 'REL1_45'],
+                    ['repository_version_id' => $echo->getKey() + 5000, 'ref_value' => 'REL1_45'],
+                ],
+                'parallel' => 1,
+            ])
+            ->assertJsonValidationErrors('items.1.repository_version_id');
+
+        $this->assertSame(0, Deployment::query()->count());
+    }
+
+    #[Test]
     public function an_undeploy_submission_stores_removal_actions_and_no_refs(): void
     {
         $echo = $this->extension('Echo', $this->v45);
