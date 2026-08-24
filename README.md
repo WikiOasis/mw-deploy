@@ -76,9 +76,10 @@ that is how new permissions reach the existing roles.
 | Deploy to one version / several / all | no notion of versions at all | yes; each version keeps its own pinned ref |
 | Cut a new core version | by hand, then re-clone ~100 extensions one by one | one form: reconstruct from an existing version |
 | **Undeploy** an extension, skin or version | no concept of it | yes, per version, behind its own permissions |
+| Ship staging as it stands | the only mode there was | yes, as an explicit mode behind its own permission |
 | Deploy history | last run only, in `/var/log/mwdeploy-state.json` | every run, queryable |
 | Rollback | no concept of it | yes — and it reverses removals as well as ref changes |
-| Users and permissions | whoever is on the Salt master shell | accounts, roles, 21 permissions across the console and its apps, enforced TOTP |
+| Users and permissions | whoever is on the Salt master shell | accounts, roles, 22 permissions across the console and its apps, enforced TOTP |
 | Patch consistency | `--patch`/`--patch-target` retyped each time | registry; target path stored on the patch |
 | Repo registration | by hand on disk | form, with a reachability check, then a reviewable clone |
 | Adopting an existing farm | n/a — the CLI *was* the farm's history | `tree-scan` reads the tree and fills the registry in from it |
@@ -206,6 +207,21 @@ Where it lives is configurable (`MWDEPLOY_CONFIG_DIR`), because farms disagree:
 Removal is a **separate grant** from deployment throughout
 (`deploy.undeploy_extension`, `deploy.undeploy_skin`, `deploy.undeploy_version`),
 and every removal is reversible — see below.
+
+### Deploying staging as it stands
+
+**Sync staging** (`/deployments/sync`) deploys the staging tree exactly as it is
+on disk: no fetch, no checkout, no selection. It is the escape hatch for work that
+never came from a ref — a file edited directly on staging, a patch applied by
+hand, a checkout repaired in place — and the plan is just the rsync of the whole
+tree, plus the same canary gate and depool/repool rollout every other deployment
+gets.
+
+Two things follow from having no line items. It is **not** scoped to a repository,
+so it ships whatever anyone else has staged too and is gated on its own permission
+(`deploy.sync_staging`) rather than on the per-type deploy grants. And it records
+no refs, so there is no undo point: rollback is not offered for it, and the way
+back is another deployment.
 
 ## Layout
 

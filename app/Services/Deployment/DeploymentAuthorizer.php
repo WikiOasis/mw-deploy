@@ -59,6 +59,13 @@ final class DeploymentAuthorizer
             return $this->denied($actor, Permissions::VERSIONS_MANAGE);
         }
 
+        // Shipping the staging tree as it stands is not scoped to a repository,
+        // so the per-checkout grants below cannot stand in for it.
+        if ($deployment->intent === DeploymentIntent::SyncStaging
+            && ! $actor->hasPermission(Permissions::DEPLOY_SYNC_STAGING)) {
+            return $this->denied($actor, Permissions::DEPLOY_SYNC_STAGING);
+        }
+
         if (($violation = $this->checkLineItems($deployment, $actor)) !== null) {
             return $violation;
         }

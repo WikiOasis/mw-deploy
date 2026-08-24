@@ -33,9 +33,10 @@ export const deploymentsApp = {
         { to: at('/scoping'), label: 'Repository access', requires: 'manage_users' },
     ],
 
-    /** The two things you come here to do, so they stay one click away. */
+    /** The things you come here to do, so they stay one click away. */
     actions: [
         { to: at('/undeploy'), label: 'Undeploy', requires: 'undeploy', variant: 'secondary' },
+        { to: at('/sync'), label: 'Sync staging', requires: 'sync_staging', variant: 'secondary' },
         { to: at('/new'), label: 'New deployment', requires: 'deploy', variant: 'primary' },
     ],
 
@@ -67,6 +68,16 @@ export const deploymentsApp = {
             component: () => import('./pages/DeployWizardPage.vue'),
             props: { intent: 'undeploy' },
             meta: { requires: 'undeploy' },
+        },
+        // Its own route for the same reason undeploy has one: shipping whatever
+        // staging currently holds is not a variant of picking refs, and should not
+        // be one mis-click away from it.
+        {
+            path: at('/sync'),
+            name: 'deployments.sync-staging',
+            component: () => import('./pages/DeployWizardPage.vue'),
+            props: { intent: 'sync_staging' },
+            meta: { requires: 'sync_staging' },
         },
 
         { path: at('/versions'), name: 'deployments.versions', component: () => import('./pages/VersionsPage.vue') },

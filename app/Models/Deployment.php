@@ -194,6 +194,12 @@ class Deployment extends Model
             return 'Undeployed '.($this->mediawikiVersion?->version ?? 'a core version');
         }
 
+        // No line items by design: what shipped was whatever the staging tree
+        // held, so naming the tree is the only honest summary.
+        if ($this->intent === DeploymentIntent::SyncStaging) {
+            return 'Synced '.rtrim((string) config('mwdeploy.paths.staging'), '/').' as it stood';
+        }
+
         return $this->repoRefs->map(fn (DeploymentRepoRef $ref) => $ref->summary())->implode(', ') ?: '—';
     }
 }

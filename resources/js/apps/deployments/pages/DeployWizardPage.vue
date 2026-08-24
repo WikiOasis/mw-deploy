@@ -14,12 +14,15 @@ import PlanReview from '../components/PlanReview.vue';
 import { flash, flashError, session } from '../../../store';
 
 /**
- * The deploy and undeploy wizards. One component, two intents — but deliberately
- * two routes: removing checkouts off the whole fleet should not be one mis-click
- * away from updating them, so there is no mode toggle here.
+ * The deploy, undeploy and staging-sync wizards. One component, three intents —
+ * but deliberately three routes: removing checkouts off the whole fleet, or
+ * shipping whatever staging currently holds, should not be one mis-click away
+ * from updating a ref, so there is no mode toggle here.
  *
- * Three steps: pick, set options, review. The review step is not decoration — it
- * shows the exact `salt` calls that will run, built by the server's planner.
+ * Three steps: pick, set options, review. A staging sync has nothing to pick, so
+ * it drops that step rather than showing an empty picker. The review step is not
+ * decoration — it shows the exact `salt` calls that will run, built by the
+ * server's planner.
  */
 const props = defineProps({
     intent: { type: String, default: 'deploy' },
@@ -49,6 +52,7 @@ const settings = ref({
 });
 
 const isUndeploy = computed(() => props.intent === 'undeploy');
+const isSyncStaging = computed(() => props.intent === 'sync_staging');
 
 /**
  * The three steps and where you are in them.
@@ -58,9 +62,12 @@ const isUndeploy = computed(() => props.intent === 'undeploy');
  * the actual consequence. A generic "Continue" on one step and a specific "Review
  * the plan" on the next makes them look like different kinds of control.
  */
-const STEP_ORDER = ['pick', 'options', 'review'];
+const STEP_ORDER = computed(() => (isSyncStaging.value ? ['options', 'review'] : ['pick', 'options', 'review']));
 
 const STEP_LABELS = { pick: 'Select', options: 'Where it goes', review: 'Review' };
+
+/** Where a staging sync starts, since there is nothing to select first. */
+const firstStep = computed(() => STEP_ORDER.value[0]);
 
 /** What the final button says, which is the consequence and not "Confirm". */
 const confirmLabel = computed(() => {
@@ -69,18 +76,20 @@ const confirmLabel = computed(() => {
     }
 
     if (settings.value?.stagingOnly) {
-        return 'Deploy to staging';
+        return isSyncStaging.value ? 'Sync the production tree on staging' : 'Deploy to staging';
     }
 
-    return `Deploy to ${
-        settings.value?.allServers ? 'all appservers' : pluralise(settings.value?.servers.length ?? 0, 'appserver')
-    }`;
+    const where = settings.value?.allServers
+        ? 'all appservers'
+        : pluralise(settings.value?.servers.length ?? 0, 'appserver');
+
+    return isSyncStaging.value ? `Sync staging to ${where}` : `Deploy to ${where}`;
 });
 
 const steps = computed(() => {
-    const at = STEP_ORDER.indexOf(step.value);
+    const at = STEP_ORDER.value.indexOf(step.value);
 
-    return STEP_ORDER.map((key, index) => ({
+    return STEP_ORDER.value.map((key, index) => ({
         key,
         label: STEP_LABELS[key],
         state: index < at ? 'done' : index === at ? 'current' : 'upcoming',
@@ -91,6 +100,7 @@ const selectedIds = computed(() => Object.keys(selection.value).map(Number));
 
 const load = async () => {
     loading.value = true;
+    step.value = firstStep.value;
 
     try {
         options.value = await api.get(endpoint('deployments/wizard'), {
@@ -123,7 +133,6 @@ watch(
         selection.value = {};
         patchIds.value = [];
         plan.value = null;
-        step.value = 'pick';
         load();
     },
 );
@@ -133,7 +142,7 @@ watch(
  * so nobody retypes a patch target; pre-selecting them is the other half of that.
  */
 const relevantPatches = computed(() => {
-    if (isUndeploy.value) {
+    if (isUndeploy.value || isSyncStaging.value) {
         return [];
     }
 
@@ -148,13 +157,17 @@ watch(relevantPatches, (patches) => {
 
 const payload = () => ({
     intent: props.intent,
-    items: Object.entries(selection.value).map(([id, choice]) => ({
-        repository_version_id: Number(id),
-        ...(isUndeploy.value
-            ? {}
-            : { ref_type: choice.refType, ref_value: (choice.refValue ?? '').trim() }),
-    })),
-    patches: isUndeploy.value ? [] : patchIds.value,
+    // A staging sync selects nothing: the tree as it stands is what ships, and the
+    // server refuses items under this intent rather than quietly ignoring them.
+    items: isSyncStaging.value
+        ? []
+        : Object.entries(selection.value).map(([id, choice]) => ({
+              repository_version_id: Number(id),
+              ...(isUndeploy.value
+                  ? {}
+                  : { ref_type: choice.refType, ref_value: (choice.refValue ?? '').trim() }),
+          })),
+    patches: isUndeploy.value || isSyncStaging.value ? [] : patchIds.value,
     servers: settings.value.stagingOnly || settings.value.allServers ? [] : settings.value.servers,
     parallel: settings.value.stagingOnly ? 1 : settings.value.parallel,
     force: settings.value.force,
@@ -194,7 +207,7 @@ const confirm = async () => {
     } catch (thrown) {
         if (thrown instanceof ApiError && thrown.isValidation) {
             validation.value = thrown.all();
-            step.value = 'pick';
+            step.value = firstStep.value;
         } else {
             flashError(thrown);
         }
@@ -209,13 +222,25 @@ const confirm = async () => {
         <div v-if="options" class="space-y-6">
             <header>
                 <h1 class="text-xl font-semibold">
-                    {{ isUndeploy ? 'Undeploy from the fleet' : 'New deployment' }}
+                    {{
+                        isUndeploy
+                            ? 'Undeploy from the fleet'
+                            : isSyncStaging
+                              ? 'Sync staging as it stands'
+                              : 'New deployment'
+                    }}
                 </h1>
                 <p class="mt-1.5 max-w-prose text-sm text-pretty text-fg-muted">
                     <template v-if="isUndeploy">
                         Removes checkouts from the staging tree and from every server, one
                         <code class="font-mono">rm -rf</code> per host. Reversible: rolling the removal back
                         clones them again at the ref they were on.
+                    </template>
+                    <template v-else-if="isSyncStaging">
+                        Ships <code class="font-mono">{{ options.tree?.staging }}</code> exactly as it is right
+                        now — no fetch, no checkout, nothing selected. For fixes made directly on staging: a
+                        hand-edited file, a patch applied by hand, a checkout someone repaired in place. Because
+                        no ref is recorded, there is no undo point, and rollback is not offered afterwards.
                     </template>
                     <template v-else>
                         Pick checkouts and refs, choose where it goes, then review every Salt call before it runs.
@@ -266,7 +291,7 @@ const confirm = async () => {
                 </ul>
             </div>
 
-            <template v-if="step === 'pick'">
+            <template v-if="step === 'pick' && !isSyncStaging">
                 <CardPanel
                     title="What to deploy"
                     :subtitle="
@@ -327,6 +352,27 @@ const confirm = async () => {
             </template>
 
             <template v-else-if="step === 'options'">
+                <CardPanel
+                    v-if="isSyncStaging"
+                    title="What will be synced"
+                    subtitle="The whole tree, as it stands on disk."
+                >
+                    <dl class="grid gap-3 text-sm sm:grid-cols-2">
+                        <div>
+                            <dt class="text-xs font-medium text-fg-subtle">From</dt>
+                            <dd class="mt-0.5 font-mono text-xs">{{ options.tree?.staging }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-medium text-fg-subtle">To</dt>
+                            <dd class="mt-0.5 font-mono text-xs">{{ options.tree?.production }}</dd>
+                        </div>
+                    </dl>
+                    <p class="mt-3 text-xs text-fg-subtle">
+                        Whatever is on staging goes out, including anything staged by someone else since it was
+                        last deployed. Check the tree before continuing.
+                    </p>
+                </CardPanel>
+
                 <CardPanel title="Where it goes">
                     <DeployOptions
                         v-model="settings"
@@ -338,8 +384,15 @@ const confirm = async () => {
                     />
                 </CardPanel>
 
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <AppButton variant="ghost" icon="arrow-left" @click="step = 'pick'">Back to selection</AppButton>
+                <!-- A staging sync has no selection step, so there is nothing to
+                     go back to and the one button sits on its own. -->
+                <div
+                    class="flex flex-wrap items-center gap-3"
+                    :class="isSyncStaging ? 'justify-end' : 'justify-between'"
+                >
+                    <AppButton v-if="!isSyncStaging" variant="ghost" icon="arrow-left" @click="step = 'pick'">
+                        Back to selection
+                    </AppButton>
                     <AppButton
                         variant="primary"
                         trailing-icon="chevron-right"

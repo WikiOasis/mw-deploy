@@ -383,6 +383,11 @@ const forceFail = async () => {
                             <span v-if="item.version" class="text-fg-subtle">({{ item.version }})</span>
                             <code class="ms-auto font-mono text-xs">{{ item.short_ref }}</code>
                         </li>
+                        <!-- A staging sync has none by design, so say what shipped
+                             instead of leaving the heading over an empty list. -->
+                        <li v-if="!deployment.refs?.length" class="py-1.5 text-fg-subtle">
+                            {{ deployment.summary }}
+                        </li>
                     </ul>
 
                     <div v-if="deployment.patches?.length" class="mt-4">

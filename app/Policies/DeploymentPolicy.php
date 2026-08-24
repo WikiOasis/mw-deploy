@@ -40,6 +40,17 @@ final class DeploymentPolicy
     }
 
     /**
+     * Deploying the staging tree as it stands, with nothing selected.
+     *
+     * Not implied by create: the per-repository deploy grants say which checkouts
+     * someone may push, and this pushes all of them at once.
+     */
+    public function syncStaging(User $user): bool
+    {
+        return $user->hasPermission(Permissions::DEPLOY_SYNC_STAGING);
+    }
+
+    /**
      * Deliberately broader than create: when something is broken you want
      * whoever noticed to be able to revert, not to wait for an approver.
      */

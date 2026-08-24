@@ -39,9 +39,11 @@ final class StoreDeploymentRequest extends FormRequest
             return false;
         }
 
-        return $this->intent() === DeploymentIntent::Undeploy
-            ? $user->hasAnyPermission(Permissions::anyUndeploy())
-            : $user->can('create', Deployment::class);
+        return match ($this->intent()) {
+            DeploymentIntent::Undeploy => $user->hasAnyPermission(Permissions::anyUndeploy()),
+            DeploymentIntent::SyncStaging => $user->can('syncStaging', Deployment::class),
+            default => $user->can('create', Deployment::class),
+        };
     }
 
     /**
@@ -49,12 +51,23 @@ final class StoreDeploymentRequest extends FormRequest
      */
     public function rules(): array
     {
-        $isUndeploy = $this->intent() === DeploymentIntent::Undeploy;
+        $intent = $this->intent();
+        $isUndeploy = $intent === DeploymentIntent::Undeploy;
+        $selectsCheckouts = $intent->selectsCheckouts();
 
         return [
-            'intent' => ['sometimes', Rule::in([DeploymentIntent::Deploy->value, DeploymentIntent::Undeploy->value])],
+            'intent' => ['sometimes', Rule::in([
+                DeploymentIntent::Deploy->value,
+                DeploymentIntent::Undeploy->value,
+                DeploymentIntent::SyncStaging->value,
+            ])],
 
-            'items' => ['required', 'array', 'min:1'],
+            // A staging sync deploys the tree as it stands. There is nothing to
+            // select, and accepting a selection would imply the operator's choice
+            // narrowed what ships when it does not.
+            'items' => $selectsCheckouts
+                ? ['required', 'array', 'min:1']
+                : ['prohibited'],
             // Existence is checked in withValidator() against the one query that
             // already loads these models, not with a per-item `exists` rule. An
             // upgrade submits every extension in a version at once — a hundred-odd
@@ -94,6 +107,7 @@ final class StoreDeploymentRequest extends FormRequest
     {
         return [
             'items.required' => 'Select at least one checkout.',
+            'items.prohibited' => 'A staging sync deploys the whole tree, so nothing is selected for it.',
             'items.*.ref_value.regex' => 'A git ref may only contain letters, digits, dots, slashes, dashes and underscores.',
             'items.*.ref_value.prohibited' => 'An undeploy has no ref to check out.',
         ];
@@ -205,6 +219,12 @@ final class StoreDeploymentRequest extends FormRequest
      */
     public function items(): array
     {
+        // A staging sync has no line items at all: the tree as it stands is the
+        // selection.
+        if (! $this->intent()->selectsCheckouts()) {
+            return [];
+        }
+
         $action = $this->action();
         $items = [];
 
@@ -255,9 +275,10 @@ final class StoreDeploymentRequest extends FormRequest
      */
     public function patches(): Collection
     {
-        // Patches are meaningless on a removal, so they are dropped rather than
-        // validated away — the wizard does not offer them either.
-        if ($this->intent() === DeploymentIntent::Undeploy) {
+        // Patches are meaningless on a removal, and a staging sync ships whatever
+        // is already applied on disk, so they are dropped rather than validated
+        // away — the wizard does not offer them under either intent.
+        if (! $this->intent()->carriesPatches()) {
             return Patch::query()->whereRaw('1 = 0')->get();
         }
 

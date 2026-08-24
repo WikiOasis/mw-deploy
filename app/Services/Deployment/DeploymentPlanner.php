@@ -86,7 +86,7 @@ final class DeploymentPlanner
             $planned[] = new PlannedCall('Preparation', $this->calls->patchApply($patch));
         }
 
-        $syncPlan = $this->calls->syncPlanFor($refs);
+        $syncPlan = $this->calls->syncPlanFor($refs, $intent);
 
         if ($syncPlan->required) {
             $planned[] = new PlannedCall('Preparation', $this->calls->rsyncLocal($syncPlan));

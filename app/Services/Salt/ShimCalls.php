@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Salt;
 
+use App\Enums\DeploymentIntent;
 use App\Enums\RepoAction;
 use App\Enums\RepositoryType;
 use App\Enums\StepName;
@@ -445,10 +446,18 @@ final class ShimCalls
      * that only removes things syncs nothing at all rather than walking the whole
      * tree.
      *
+     * A staging sync is the one intent that says "everything" outright: it has no
+     * line items to derive paths from, because the tree as it stands *is* the
+     * selection.
+     *
      * @param  iterable<DeploymentRepoRef>  $refs
      */
-    public function syncPlanFor(iterable $refs): SyncPlan
+    public function syncPlanFor(iterable $refs, ?DeploymentIntent $intent = null): SyncPlan
     {
+        if ($intent === DeploymentIntent::SyncStaging) {
+            return SyncPlan::fullTree();
+        }
+
         $paths = [];
 
         foreach ($refs as $ref) {
