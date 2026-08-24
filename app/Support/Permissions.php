@@ -58,6 +58,15 @@ final class Permissions
 
     public const DEPLOY_PRODUCTION_SERVERS = 'deploy.production_servers';
 
+    /**
+     * Deploy the staging tree as it stands, without selecting checkouts.
+     *
+     * Its own grant because it is not scoped to a repository: it ships whatever
+     * happens to be on staging — including someone else's half-finished work —
+     * so being trusted with one extension is not enough to authorise it.
+     */
+    public const DEPLOY_SYNC_STAGING = 'deploy.sync_staging';
+
     public const DEPLOY_FORCE_FLAG = 'deploy.force_flag';
 
     public const DEPLOY_ROLLBACK = 'deploy.rollback';
@@ -118,6 +127,7 @@ final class Permissions
                 self::DEPLOY_SKIN,
                 self::DEPLOY_CONFIG,
                 self::DEPLOY_PRODUCTION_SERVERS,
+                self::DEPLOY_SYNC_STAGING,
                 self::DEPLOY_FORCE_FLAG,
                 self::DEPLOY_ROLLBACK,
                 self::DEPLOY_DECIDE,
@@ -166,6 +176,7 @@ final class Permissions
             self::DEPLOY_SKIN => 'Deploy skins',
             self::DEPLOY_CONFIG => 'Deploy wiki config',
             self::DEPLOY_PRODUCTION_SERVERS => 'Target production appservers (rather than staging-only dry runs)',
+            self::DEPLOY_SYNC_STAGING => 'Deploy the staging tree as it stands, without selecting checkouts',
             self::DEPLOY_FORCE_FLAG => 'Set --force, skipping the canary gate',
             self::DEPLOY_ROLLBACK => 'Roll back a past deployment',
             self::DEPLOY_DECIDE => 'Answer a blocking canary-failure prompt on a running deployment',

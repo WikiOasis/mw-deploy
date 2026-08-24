@@ -15,6 +15,17 @@ enum DeploymentIntent: string
 {
     case Deploy = 'deploy';
     case Undeploy = 'undeploy';
+
+    /**
+     * Ship the staging tree exactly as it stands, with no git work at all.
+     *
+     * The escape hatch for work that never came from a ref: a fix edited
+     * directly on staging, a hand-applied patch, a checkout someone fixed up by
+     * hand. There is nothing to select, so the deployment carries no line items
+     * — the whole tree syncs, which is also why it is gated on its own
+     * permission rather than on the per-repository deploy grants.
+     */
+    case SyncStaging = 'sync_staging';
     case VersionCreate = 'version_create';
     case VersionUndeploy = 'version_undeploy';
 
@@ -23,6 +34,7 @@ enum DeploymentIntent: string
         return match ($this) {
             self::Deploy => 'Deploy',
             self::Undeploy => 'Undeploy',
+            self::SyncStaging => 'Sync staging',
             self::VersionCreate => 'Create core version',
             self::VersionUndeploy => 'Undeploy core version',
         };
@@ -40,10 +52,33 @@ enum DeploymentIntent: string
     public function badgeTone(): string
     {
         return match ($this) {
-            self::Deploy, self::VersionCreate => 'neutral',
+            self::Deploy, self::SyncStaging, self::VersionCreate => 'neutral',
             self::Undeploy => 'warning',
             self::VersionUndeploy => 'danger',
         };
+    }
+
+    /**
+     * Whether the operator picks checkouts and refs under this intent.
+     *
+     * False for a staging sync, which deploys whatever is already on disk: it
+     * carries no line items, and submitting any would imply the operator chose
+     * something that is in fact ignored.
+     */
+    public function selectsCheckouts(): bool
+    {
+        return $this !== self::SyncStaging;
+    }
+
+    /**
+     * Whether patches are meaningful under this intent.
+     *
+     * A removal has nothing left to patch, and a staging sync ships the tree as
+     * it stands — anything to be patched was patched before the sync.
+     */
+    public function carriesPatches(): bool
+    {
+        return $this !== self::Undeploy && $this !== self::SyncStaging;
     }
 
     /**

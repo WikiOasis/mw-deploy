@@ -65,6 +65,7 @@ final class BootstrapController extends Controller
             'can' => [
                 'deploy' => $user->can('create', Deployment::class),
                 'undeploy' => $user->hasAnyPermission(Permissions::anyUndeploy()),
+                'sync_staging' => $user->hasPermission(Permissions::DEPLOY_SYNC_STAGING),
                 'rollback' => $user->hasPermission(Permissions::DEPLOY_ROLLBACK),
                 'decide' => $user->hasPermission(Permissions::DEPLOY_DECIDE),
                 'pool' => $user->hasPermission(Permissions::DEPLOY_POOL),

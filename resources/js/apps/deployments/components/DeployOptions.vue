@@ -2,9 +2,9 @@
 import { computed } from 'vue';
 
 /**
- * Target and rollout options, shared by the deploy and undeploy wizards. These are
- * the CLI's --servers / --parallel / --rollout / --l10n / --force, with the same
- * meanings.
+ * Target and rollout options, shared by the deploy, undeploy and staging-sync
+ * wizards. These are the CLI's --servers / --parallel / --rollout / --l10n /
+ * --force, with the same meanings.
  */
 const props = defineProps({
     /** { stagingOnly, allServers, servers[], rollout, l10n, force, parallel } */
@@ -19,6 +19,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue']);
 
 const isUndeploy = computed(() => props.intent === 'undeploy');
+const isSyncStaging = computed(() => props.intent === 'sync_staging');
 
 const set = (changes) => emit('update:modelValue', { ...props.modelValue, ...changes });
 
@@ -46,6 +47,10 @@ const toggleServer = (hostname) => {
                 <span class="block text-xs text-fg-subtle">
                     <template v-if="isUndeploy">
                         Remove from the staging tree only, leaving the appservers untouched.
+                    </template>
+                    <template v-else-if="isSyncStaging">
+                        Update the production tree on the staging host and run its canary, leaving the
+                        appservers untouched.
                     </template>
                     <template v-else>
                         Prepare and validate on staging without touching any appserver.

@@ -33,9 +33,11 @@ use Throwable;
  * The orchestrator. Laravel is the brain here: it sequences, retries, aborts and
  * records. Salt is a dumb remote-exec transport, one call per step per server.
  *
- * Every intent — deploy, undeploy, create a core version, remove a core version,
- * roll any of those back — runs through this one pipeline. What differs between
- * them is the line items in deployment_repo_refs, not the control flow.
+ * Every intent — deploy, undeploy, sync the staging tree as it stands, create a
+ * core version, remove a core version, roll any of those back — runs through this
+ * one pipeline. What differs between them is the line items in
+ * deployment_repo_refs, not the control flow: a staging sync simply has none, so
+ * the preparation steps fall away and the rsync covers the whole tree.
  */
 final class DeploymentRunner
 {
@@ -108,7 +110,7 @@ final class DeploymentRunner
         }
 
         $removals = $this->removalPlanFor($deployment);
-        $syncPlan = $this->calls->syncPlanFor($refs);
+        $syncPlan = $this->calls->syncPlanFor($refs, $deployment->intent);
 
         // Removals on staging, then the checkouts that are being deployed.
         if (! $this->applyStagingRemovals($deployment, $removals)) {

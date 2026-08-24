@@ -55,8 +55,8 @@ final class CreateDeployment
             }
 
             // Patches are only meaningful on the way in; a removal has nothing
-            // left to patch.
-            if ($intent !== DeploymentIntent::Undeploy) {
+            // left to patch, and a staging sync ships whatever is already there.
+            if ($intent->carriesPatches()) {
                 foreach (Patch::query()->whereIn('id', $patchIds)->get() as $patch) {
                     $deployment->deploymentPatches()->create([
                         'patch_id' => $patch->getKey(),

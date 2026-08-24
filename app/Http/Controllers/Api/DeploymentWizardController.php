@@ -22,15 +22,17 @@ use App\Models\MediaWikiVersion;
 use App\Models\Patch;
 use App\Models\Repository;
 use App\Models\RepositoryVersion;
+use App\Models\User;
 use App\Services\Deployment\DeploymentPlanner;
 use App\Services\Deployment\PlannedCall;
+use App\Services\Salt\ShimCalls;
 use App\Support\Permissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
 /**
- * The deploy and undeploy wizards, as data.
+ * The deploy, undeploy and staging-sync wizards, as data.
  *
  * Three endpoints for one flow: what may be selected, what the selection would
  * run, and go. The middle one matters — this is a destructive multi-server action,
@@ -40,6 +42,8 @@ use Illuminate\Support\Collection;
  */
 final class DeploymentWizardController extends Controller
 {
+    public function __construct(private readonly ShimCalls $calls) {}
+
     /**
      * Repositories, checkouts, patches and targets, filtered to what this user may
      * act on under the requested intent.
@@ -51,8 +55,18 @@ final class DeploymentWizardController extends Controller
 
         if ($intent === DeploymentIntent::Undeploy) {
             abort_unless($user->hasAnyPermission(Permissions::anyUndeploy()), 403);
+        } elseif ($intent === DeploymentIntent::SyncStaging) {
+            $this->authorize('syncStaging', Deployment::class);
         } else {
             $this->authorize('create', Deployment::class);
+        }
+
+        // A staging sync selects nothing, so the repository and patch lists the
+        // picker would render are not just empty — they are not asked for. The
+        // rest of the payload (targets, defaults, what this account may do) is
+        // exactly what the options step needs.
+        if ($intent === DeploymentIntent::SyncStaging) {
+            return response()->json($this->syncStagingOptions($intent, $user));
         }
 
         $action = $intent->defaultAction();
@@ -227,6 +241,40 @@ final class DeploymentWizardController extends Controller
             'id' => $deployment->getKey(),
             'message' => 'Deployment #'.$deployment->getKey().' queued.',
         ], 201);
+    }
+
+    /**
+     * The options payload for a staging sync: no selection, just where it goes.
+     *
+     * @return array<string, mixed>
+     */
+    private function syncStagingOptions(DeploymentIntent $intent, User $user): array
+    {
+        return [
+            'intent' => $intent->value,
+            'intent_label' => $intent->label(),
+            'repositories' => [],
+            'types' => [],
+            'versions' => [],
+            'patches' => [],
+            'appservers' => TargetResource::collection($this->targets(TargetRole::Appserver))->resolve(),
+            'proxies' => TargetResource::collection($this->targets(TargetRole::Proxy))->resolve(),
+            'defaults' => [
+                'parallel' => (int) config('mwdeploy.rollout.default_parallel', 1),
+                'max_parallel' => (int) config('mwdeploy.rollout.max_parallel', 8),
+                'staging_only' => ! $user->hasPermission(Permissions::DEPLOY_PRODUCTION_SERVERS),
+            ],
+            'can' => [
+                'force' => $user->hasPermission(Permissions::DEPLOY_FORCE_FLAG),
+                'target_production' => $user->hasPermission(Permissions::DEPLOY_PRODUCTION_SERVERS),
+            ],
+            // What the sync will actually move, so the screen can say it without
+            // knowing the deployment's own path config.
+            'tree' => [
+                'staging' => $this->calls->stagingRoot(),
+                'production' => $this->calls->productionRoot(),
+            ],
+        ];
     }
 
     /**
