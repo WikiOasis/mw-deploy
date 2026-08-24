@@ -24,8 +24,9 @@ MWDEPLOY_RSYNC_SOURCE=rsync://staging.wikioasis.org/mediawiki/
 
 The shim treats that value as an opaque rsync source, so switching to an NFS
 export is a one-line env change (`MWDEPLOY_RSYNC_SOURCE=/mnt/mediawiki-staging/`)
-with no code change. The rsync flags and excludes are carried over from the
-original `rsync_local`/`rsync_remote` unchanged.
+with no code change. The rsync flags are carried over from the original
+`rsync_local`/`rsync_remote` unchanged; the exclude list is too, apart from
+`.git` (now deliberately synced) and `cw_cache/*` (generated per host).
 
 **Why not `cp.push`/`cp.get_file`:** Salt's file-transfer primitives move whole
 files through the master's ZeroMQ transport with no delta encoding and no

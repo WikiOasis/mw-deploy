@@ -106,6 +106,23 @@ class RsyncArgvTest(unittest.TestCase):
         self.assertIn(".gitignore", argv)
         self.assertEqual(["/srv/staging/", "/srv/prod/"], argv[-2:])
 
+    def test_per_host_generated_directories_are_excluded(self):
+        argv = shim.rsync_argv("/srv/staging/", "/srv/prod/", provision=False, paths=[])
+
+        # Each host generates these itself, so shipping staging's copy would
+        # overwrite the receiver's — and --delete would drop entries only that
+        # host had. vendor/ is deliberately absent: it is gitignored, so an
+        # appserver has no other way to get it.
+        for excluded in ("cache/*", "cw_cache/*", "images/*", "l10n_cache/*"):
+            self.assertIn(excluded, argv)
+
+        self.assertNotIn("vendor", argv)
+        self.assertNotIn("vendor/*", argv)
+
+        # --delete-excluded is what would turn an exclude into a deletion on the
+        # receiver, so it must stay off.
+        self.assertNotIn("--delete-excluded", argv)
+
     def test_provision_adds_the_first_run_flags(self):
         argv = shim.rsync_argv("/a/", "/b/", provision=True, paths=[])
 

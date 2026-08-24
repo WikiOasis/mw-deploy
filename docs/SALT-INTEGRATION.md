@@ -135,12 +135,13 @@ staging + appservers + proxies.
 salt '*' cmd.run 'mwdeploy-shim --version'
 ```
 
-Every minion should print `mwdeploy-shim 2.2.0`. The version matters: `tree-scan`,
+Every minion should print `mwdeploy-shim 2.2.1`. The version matters: `tree-scan`,
 which is what the portal reads an existing farm with, arrived in 2.1.0, and a minion
 still on 2.0.0 will fail the import screen with a usage error rather than something
 self-explanatory. 2.2.0 is where an extension's or skin's composer dependencies
 started being merged into the core root's install (below) instead of being
-installed into a vendor/ inside the extension that MediaWiki never autoloads.
+installed into a vendor/ inside the extension that MediaWiki never autoloads, and
+2.2.1 stopped syncing `cw_cache/` contents between hosts.
 
 ### Sudoers
 
