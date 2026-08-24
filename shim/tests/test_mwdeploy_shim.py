@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -609,6 +610,230 @@ class DependencyInstallTest(unittest.TestCase):
         self.assertEqual(0, code, payload)
         self.assertEqual(1, len(payload["installed"]))
         self.assertIn("npm install", payload["installed"][0]["ran"])
+
+
+class ComposerMergeRootTest(unittest.TestCase):
+    """An extension's dependencies belong to the core install above it."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _core(self, *segments: str) -> Path:
+        core = self.root.joinpath(*segments)
+        (core / "extensions").mkdir(parents=True)
+        (core / "skins").mkdir(parents=True)
+        (core / "composer.json").write_text('{"name": "mediawiki/core"}\n')
+
+        return core
+
+    def test_an_extension_resolves_to_the_core_root_above_it(self):
+        core = self._core("staging")
+        extension = core / "extensions" / "Echo"
+        extension.mkdir()
+
+        self.assertEqual(str(core), shim.composer_merge_root(str(extension)))
+
+    def test_a_skin_resolves_to_the_core_root_too(self):
+        core = self._core("staging", "versions", "1.43")
+        skin = core / "skins" / "Vector"
+        skin.mkdir()
+
+        self.assertEqual(str(core), shim.composer_merge_root(str(skin)))
+
+    def test_the_nearest_core_root_wins(self):
+        # A versioned tree has a composer.json at the deploy root as well; an
+        # extension of 1.43 belongs to 1.43, not to whatever sits above it.
+        outer = self._core("staging")
+        inner = self._core("staging", "versions", "1.43")
+        extension = inner / "extensions" / "Echo"
+        extension.mkdir()
+
+        resolved = shim.composer_merge_root(str(extension))
+
+        self.assertEqual(str(inner), resolved)
+        self.assertNotEqual(str(outer), resolved)
+
+    def test_core_itself_has_no_merge_root(self):
+        core = self._core("staging")
+
+        self.assertIsNone(shim.composer_merge_root(str(core)))
+
+    def test_a_checkout_outside_extensions_and_skins_has_no_merge_root(self):
+        core = self._core("staging")
+        config = core / "config"
+        config.mkdir()
+
+        self.assertIsNone(shim.composer_merge_root(str(config)))
+
+    def test_an_extension_without_a_core_above_it_has_no_merge_root(self):
+        extension = self.root / "loose" / "extensions" / "Echo"
+        extension.mkdir(parents=True)
+
+        self.assertIsNone(shim.composer_merge_root(str(extension)))
+
+
+class ComposerLocalJsonTest(unittest.TestCase):
+    """composer.local.json declares the manifest globs without eating anything
+    an operator put there by hand."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.core = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _read(self) -> dict:
+        return json.loads((self.core / "composer.local.json").read_text())
+
+    def test_it_is_created_with_the_extension_and_skin_globs(self):
+        self.assertTrue(shim.ensure_composer_merge_plugin(str(self.core)))
+
+        merge = self._read()["extra"]["merge-plugin"]
+
+        self.assertEqual(
+            ["extensions/*/composer.json", "skins/*/composer.json"], merge["include"]
+        )
+        self.assertTrue(merge["recurse"])
+        self.assertFalse(merge["merge-dev"])
+
+    def test_writing_it_twice_is_a_no_op_the_second_time(self):
+        self.assertTrue(shim.ensure_composer_merge_plugin(str(self.core)))
+        self.assertFalse(shim.ensure_composer_merge_plugin(str(self.core)))
+
+    def test_existing_content_is_preserved(self):
+        (self.core / "composer.local.json").write_text(
+            json.dumps(
+                {
+                    "require": {"wikioasis/pinned": "1.2.3"},
+                    "extra": {"merge-plugin": {"include": ["extensions/Echo/composer.json"]}},
+                }
+            )
+        )
+
+        self.assertTrue(shim.ensure_composer_merge_plugin(str(self.core)))
+
+        data = self._read()
+
+        self.assertEqual({"wikioasis/pinned": "1.2.3"}, data["require"])
+        self.assertEqual(
+            [
+                "extensions/Echo/composer.json",
+                "extensions/*/composer.json",
+                "skins/*/composer.json",
+            ],
+            data["extra"]["merge-plugin"]["include"],
+        )
+
+    def test_unparseable_json_is_an_error_rather_than_being_overwritten(self):
+        (self.core / "composer.local.json").write_text("{not json")
+
+        with self.assertRaises(shim.ShimError):
+            shim.ensure_composer_merge_plugin(str(self.core))
+
+        self.assertEqual("{not json", (self.core / "composer.local.json").read_text())
+
+
+class ExtensionDependencyInstallTest(unittest.TestCase):
+    """An extension inside a core tree installs from the core root, not in place."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.origin = str(Path(cls._tmp.name) / "origin")
+        os.makedirs(cls.origin)
+
+        git("init", "-q", "-b", "master", ".", cwd=cls.origin)
+        git("config", "user.email", "deploy@wikioasis.org", cwd=cls.origin)
+        git("config", "user.name", "Deploy", cwd=cls.origin)
+        (Path(cls.origin) / "composer.json").write_text('{"name": "wikioasis/fixture"}\n')
+        git("add", "-A", cwd=cls.origin)
+        git("commit", "-qm", "extension with a manifest", cwd=cls.origin)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def setUp(self):
+        self._work_tmp = tempfile.TemporaryDirectory()
+        self.core = Path(self._work_tmp.name) / "staging" / "versions" / "1.43"
+        (self.core / "extensions").mkdir(parents=True)
+        (self.core / "composer.json").write_text('{"name": "mediawiki/core"}\n')
+
+    def tearDown(self):
+        self._work_tmp.cleanup()
+
+    def _clone(self, name: str) -> str:
+        target = str(self.core / "extensions" / name)
+        subprocess.run(
+            ["git", "clone", "-q", self.origin, target], check=True, capture_output=True
+        )
+
+        return target
+
+    def test_git_checkout_installs_from_the_core_root(self):
+        extension = self._clone("Fixture")
+
+        code, payload, _ = run_shim("git-checkout", "--path", extension, "--ref", "master")
+
+        self.assertEqual(0, code, payload)
+        self.assertIn(f"composer install in {self.core}", payload["installed"])
+        self.assertIn(f"composer.local.json merge in {self.core}", payload["installed"])
+        self.assertTrue((self.core / "vendor" / "autoload.php").exists())
+        # The vendor/ MediaWiki never autoloads is not created.
+        self.assertFalse((Path(extension) / "vendor").exists())
+
+    def test_git_pull_installs_from_the_core_root_too(self):
+        extension = self._clone("Fixture")
+        run_shim("git-checkout", "--path", extension, "--ref", "master")
+        shutil.rmtree(self.core / "vendor")
+
+        code, payload, _ = run_shim("git-pull", "--path", extension)
+
+        self.assertEqual(0, code, payload)
+        self.assertIn(f"composer install in {self.core}", payload["installed"])
+        # Already declared by the checkout above, so not rewritten.
+        self.assertNotIn(f"composer.local.json merge in {self.core}", payload["installed"])
+        self.assertTrue((self.core / "vendor" / "autoload.php").exists())
+
+    def test_repo_register_installs_from_the_core_root(self):
+        target = str(self.core / "extensions" / "Registered")
+
+        code, payload, _ = run_shim("repo-register", "--url", self.origin, "--path", target)
+
+        self.assertEqual(0, code, payload)
+        self.assertIn(f"composer install in {self.core}", payload["installed"])
+        self.assertTrue((self.core / "vendor" / "autoload.php").exists())
+        self.assertFalse((Path(target) / "vendor").exists())
+
+    def test_several_synced_extensions_install_their_shared_root_once(self):
+        # What a path-restricted rsync of two extensions of the same core does:
+        # one root install covers both, so the second must not repeat it.
+        for name in ("One", "Two"):
+            extension = self.core / "extensions" / name
+            extension.mkdir(parents=True)
+            (extension / "composer.json").write_text('{"name": "wikioasis/fixture"}\n')
+
+        # Called in-process rather than through rsync-local, so the web user has
+        # to be pinned the way run_shim pins it for the subprocess tests.
+        with unittest.mock.patch.object(shim, "WEB_USER", _current_user()):
+            installed = shim.install_dependencies_for_sync(
+                str(self.core), ["extensions/One", "extensions/Two"]
+            )
+
+        installs = [
+            entry
+            for target in installed
+            for entry in target["ran"]
+            if entry.startswith("composer install")
+        ]
+
+        self.assertEqual([f"composer install in {self.core}"], installs)
+        self.assertTrue((self.core / "vendor" / "autoload.php").exists())
 
 
 class PatchApplyTest(unittest.TestCase):

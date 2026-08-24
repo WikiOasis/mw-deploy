@@ -98,6 +98,39 @@ and each rsync target is verified to have them too rather than only relying on
 `vendor/`/`node_modules/` having been carried over from staging by the transfer
 itself.
 
+### Composer and the merge plugin
+
+MediaWiki loads one Composer autoloader — the core checkout's `vendor/` — so an
+extension or skin is never installed in place. When the checkout being updated
+sits under a core tree's `extensions/` or `skins/` (including
+`versions/<ver>/extensions/…`), the shim instead:
+
+1. writes/updates `composer.local.json` in that core root, declaring
+   `extra.merge-plugin.include` as `extensions/*/composer.json` and
+   `skins/*/composer.json`, with `recurse: true` and `merge-dev: false`
+   (anything else already in the file is left alone); then
+2. runs `composer install --no-dev --no-interaction --optimize-autoloader`
+   **from the core root**, so core and every extension/skin resolve together
+   into the single `vendor/` MediaWiki actually autoloads.
+
+Globs, not per-extension entries, so registering a new extension needs no edit:
+the next `git-checkout`/`git-pull`/`repo-register`/rsync install picks its
+manifest up. A path-restricted rsync that lands several extensions under one
+root installs that root once, not once per extension.
+
+A checkout that is nobody's extension — core itself, a standalone tool — still
+installs in place.
+
+`wikimedia/composer-merge-plugin` is a MediaWiki core dependency, so nothing
+extra needs installing for this; core's `composer.json` must have it in
+`allow-plugins` (it does by default).
+
+Caveat inherent to `install`: an extension that adds a *new* requirement changes
+what the merged manifest resolves to, and `composer install` installs from
+`composer.lock`. If a deploy warns that the lock file is out of date, run
+`composer update --no-dev` once in the core root (as the web user) to refresh it;
+`composer install` alone never rewrites a lock.
+
 Using NFS instead is a config change only:
 
 ```dotenv
