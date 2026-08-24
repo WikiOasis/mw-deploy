@@ -119,7 +119,12 @@ mwdeploy-shim-deps:
 appserver (`rsync-remote`) — `git-checkout`, `git-pull`, `repo-register`,
 `rsync-local` and `rsync-remote` all run `composer install`/`npm install`
 themselves whenever the checkout (or the path(s) an rsync was restricted to)
-has a `composer.json`/`package.json`.
+has a `composer.json`/`package.json`. For an extension or skin under a core
+tree, that composer install runs **from the core root** with the checkout's
+manifest merged in via `composer.local.json` and Composer's merge plugin — see
+"Composer and the merge plugin" in `docs/OPERATIONS.md`. The web user therefore
+needs write access to the core root's `composer.local.json` and `vendor/`, not
+just the extension directory.
 
 Then apply to all minions in your top file, or a nodegroup covering
 staging + appservers + proxies.
@@ -130,10 +135,12 @@ staging + appservers + proxies.
 salt '*' cmd.run 'mwdeploy-shim --version'
 ```
 
-Every minion should print `mwdeploy-shim 2.1.0`. The version matters: `tree-scan`,
+Every minion should print `mwdeploy-shim 2.2.0`. The version matters: `tree-scan`,
 which is what the portal reads an existing farm with, arrived in 2.1.0, and a minion
 still on 2.0.0 will fail the import screen with a usage error rather than something
-self-explanatory.
+self-explanatory. 2.2.0 is where an extension's or skin's composer dependencies
+started being merged into the core root's install (below) instead of being
+installed into a vendor/ inside the extension that MediaWiki never autoloads.
 
 ### Sudoers
 
