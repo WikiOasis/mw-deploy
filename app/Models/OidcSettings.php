@@ -23,7 +23,7 @@ use Illuminate\Database\Eloquent\Model;
     'enabled', 'label', 'password_login_enabled', 'discovery_url', 'issuer',
     'client_id', 'client_secret', 'authorization_endpoint', 'token_endpoint',
     'userinfo_endpoint', 'jwks_uri', 'end_session_endpoint', 'scopes',
-    'groups_claim', 'trust_provider_email', 'create_users', 'sync_roles',
+    'groups_claim', 'create_users', 'sync_roles',
     'allowed_groups', 'discovered_at',
 ])]
 #[Hidden(['client_secret'])]
@@ -44,7 +44,6 @@ final class OidcSettings extends Model
         'password_login_enabled' => true,
         'scopes' => 'openid profile email groups',
         'groups_claim' => 'groups',
-        'trust_provider_email' => true,
         'create_users' => true,
         'sync_roles' => true,
     ];
@@ -57,7 +56,6 @@ final class OidcSettings extends Model
         return [
             'enabled' => 'boolean',
             'password_login_enabled' => 'boolean',
-            'trust_provider_email' => 'boolean',
             'create_users' => 'boolean',
             'sync_roles' => 'boolean',
             'allowed_groups' => 'array',
@@ -146,19 +144,6 @@ final class OidcSettings extends Model
         }
 
         return (bool) $this->password_login_enabled;
-    }
-
-    /**
-     * Whether an address the provider stated without an `email_verified` claim
-     * may be treated as verified.
-     *
-     * Only ever consulted for a *missing* claim. An explicit
-     * `email_verified: false` is the provider saying it does not vouch for the
-     * address, and that is refused regardless — see OidcUserProvisioner.
-     */
-    public function trustsProviderEmail(): bool
-    {
-        return (bool) $this->trust_provider_email;
     }
 
     /**

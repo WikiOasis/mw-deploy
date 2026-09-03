@@ -339,7 +339,10 @@ Then in the UI, in this order:
    proven — keep one local account, and know that
    `CONSOLE_FORCE_PASSWORD_LOGIN=true` in `.env` puts the form back on the day
    the IdP is what broke. Enforce MFA at the provider: accounts whose only way
-   in is SSO are not asked to enrol TOTP here.
+   in is SSO are not asked to enrol TOTP here. The console also links an existing
+   account on the email address the provider states, without requiring an
+   `email_verified` claim — which assumes an internal provider that approves
+   access to this application, so keep it one.
 8. A **staging-only** deployment of one small extension, as a smoke test, before
    anything targets production.
 

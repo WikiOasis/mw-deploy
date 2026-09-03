@@ -121,17 +121,20 @@ What it does with what the provider says:
   subjects do not. An account already linked to one subject is never relinked to
   another on the strength of an email address — that is an administrator's call,
   made by clearing the old subject.
-* **An existing account is only claimed on a verified email.** Otherwise an IdP
-  that lets someone type an arbitrary address into a profile page would be a way to
-  walk into an account that already exists. Linking keeps that account's roles,
-  its TOTP enrolment and its deployment history.
+* **An existing account is claimed on its email address**, and `email_verified` is
+  not consulted. Linking keeps that account's roles, its TOTP enrolment and its
+  deployment history.
 
-  `email_verified` is optional in the spec, and several providers — Authentik among
-  them — never send it. **Trust email addresses the provider does not mark as
-  verified** covers that case, and is on by default: without it, an account that
-  already exists here could never be linked. A provider that explicitly answers
-  `email_verified: false` is refused either way — that is it telling you it does
-  not vouch for the address.
+  This assumes what is true of the provider it is built for: an internal IdP that
+  gates access to this application behind manual approval, so the address it states
+  is exactly as trustworthy as the identity it states. Point the console at a
+  provider that hands out accounts to strangers and that assumption is gone —
+  someone could then set their profile email to a colleague's and inherit their
+  roles. The claim is still read, and still decides whether the local address
+  counts as verified; it just no longer decides who may sign in.
+
+  An account already linked to a *different* subject is never re-claimed on an
+  email address, whatever the provider says.
 * **Groups map to roles, never to permissions.** A group lands someone in the same
   bucket an administrator would have put them in by hand, so `/access` keeps
   telling the whole truth about what an account can do.

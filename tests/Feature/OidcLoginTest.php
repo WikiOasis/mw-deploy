@@ -377,55 +377,47 @@ final class OidcLoginTest extends TestCase
     }
 
     #[Test]
-    public function a_provider_that_sends_no_email_verified_claim_can_still_link_an_account(): void
+    public function an_existing_account_is_linked_whatever_the_provider_says_about_verification(): void
     {
         /*
-         * The Authentik case, and the reason this setting exists: the claim is
-         * optional in the spec and plenty of providers never send it, which left
-         * every attempt to link an existing account refused for a reason that had
-         * nothing to do with the person signing in.
+         * `email_verified` is optional in the spec and plenty of providers —
+         * Authentik among them — never send it, which is what made this a bug
+         * rather than a policy: every attempt to link an existing account was
+         * refused for a reason that had nothing to do with the person signing in.
+         *
+         * The check it replaced assumed a provider that hands out accounts to
+         * strangers. This one is internal and gates access to the application
+         * behind manual approval, so the address it states is exactly as
+         * trustworthy as the identity it states.
          */
-        $this->idp->configure(['trust_provider_email' => true]);
+        $this->idp->configure();
 
-        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        foreach ([[], ['email_verified' => true], ['email_verified' => false]] as $index => $claim) {
+            $existing = User::factory()->create(['password' => null]);
 
-        // No email_verified key at all, as against one set to false.
-        $this->signIn(['sub' => 'authentik-1', 'email' => $existing->email]);
+            $this->signIn(['sub' => 'authentik-'.$index, 'email' => $existing->email, ...$claim]);
 
-        $this->assertAuthenticatedAs($existing->fresh());
-        $this->assertSame('authentik-1', $existing->fresh()->oidc_subject);
+            $this->assertAuthenticatedAs($existing->fresh());
+            $this->assertSame('authentik-'.$index, $existing->fresh()->oidc_subject);
+
+            $this->post(route('logout'));
+        }
     }
 
     #[Test]
-    public function a_missing_email_verified_claim_is_refused_when_the_provider_is_not_trusted(): void
+    public function the_local_verified_timestamp_still_follows_the_claim(): void
     {
-        $this->idp->configure(['trust_provider_email' => false]);
+        // Read, recorded, and not gated on: the claim decides whether the local
+        // address counts as verified, and nothing else.
+        $this->idp->configure();
 
-        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $this->signIn(['sub' => 'stated-true', 'email' => 'stated@wikioasis.org', 'email_verified' => true]);
+        $this->assertNotNull(User::query()->where('oidc_subject', 'stated-true')->sole()->email_verified_at);
 
-        $this->signIn(['sub' => 'authentik-2', 'email' => $existing->email])
-            ->assertRedirect(route('login'))
-            ->assertSessionHasErrors('oidc');
+        $this->post(route('logout'));
 
-        $this->assertGuest();
-        $this->assertNull($existing->fresh()->oidc_subject);
-    }
-
-    #[Test]
-    public function an_explicit_email_verified_false_is_refused_even_when_the_provider_is_trusted(): void
-    {
-        // Trusting a provider that says nothing is a decision about a gap. A
-        // provider that says "no" has answered, and the answer stands.
-        $this->idp->configure(['trust_provider_email' => true]);
-
-        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
-
-        $this->signIn(['sub' => 'attacker', 'email' => $existing->email, 'email_verified' => false])
-            ->assertRedirect(route('login'))
-            ->assertSessionHasErrors('oidc');
-
-        $this->assertGuest();
-        $this->assertNull($existing->fresh()->oidc_subject);
+        $this->signIn(['sub' => 'said-nothing', 'email' => 'silent@wikioasis.org']);
+        $this->assertNull(User::query()->where('oidc_subject', 'said-nothing')->sole()->email_verified_at);
     }
 
     #[Test]
@@ -456,21 +448,6 @@ final class OidcLoginTest extends TestCase
         $this->assertAuthenticatedAs($existing->fresh());
         $this->assertSame('From Userinfo', $existing->fresh()->name);
         $this->assertSame(['ops'], $existing->fresh(['roles'])->roles->pluck('name')->all());
-    }
-
-    #[Test]
-    public function an_unverified_email_cannot_claim_an_existing_account(): void
-    {
-        $this->idp->configure();
-
-        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE]);
-
-        $this->signIn(['sub' => 'attacker', 'email' => $existing->email, 'email_verified' => false])
-            ->assertRedirect(route('login'))
-            ->assertSessionHasErrors('oidc');
-
-        $this->assertGuest();
-        $this->assertNull($existing->fresh()->oidc_subject);
     }
 
     #[Test]

@@ -483,26 +483,6 @@ const save = async () => {
                             </span>
                         </label>
 
-                        <label class="flex items-start gap-2.5">
-                            <input
-                                v-model="form.trust_provider_email"
-                                type="checkbox"
-                                class="mt-0.5 size-4 rounded border-line-strong"
-                            />
-                            <span>
-                                <span class="text-sm font-medium">
-                                    Trust email addresses the provider does not mark as verified
-                                </span>
-                                <span class="block text-xs text-fg-subtle">
-                                    The <span class="font-mono">email_verified</span> claim is optional, and several
-                                    providers — Authentik among them — do not send it at all. Without this, an
-                                    account that already exists here can never be linked, because the address can
-                                    never be shown to be verified. A provider that explicitly says
-                                    <span class="font-mono">email_verified: false</span> is refused either way.
-                                </span>
-                            </span>
-                        </label>
-
                         <FormField
                             v-slot="field"
                             label="Restrict sign-in to these groups"

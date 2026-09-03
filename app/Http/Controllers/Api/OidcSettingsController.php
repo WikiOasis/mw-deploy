@@ -90,7 +90,6 @@ final class OidcSettingsController extends Controller
 
             'scopes' => ['required', 'string', 'max:255'],
             'groups_claim' => ['required', 'string', 'max:120'],
-            'trust_provider_email' => ['required', 'boolean'],
 
             'create_users' => ['required', 'boolean'],
             'sync_roles' => ['required', 'boolean'],
@@ -121,7 +120,6 @@ final class OidcSettingsController extends Controller
             'end_session_endpoint' => $validated['end_session_endpoint'] ?? null,
             'scopes' => $validated['scopes'],
             'groups_claim' => $validated['groups_claim'],
-            'trust_provider_email' => $validated['trust_provider_email'],
             'create_users' => $validated['create_users'],
             'sync_roles' => $validated['sync_roles'],
             'allowed_groups' => array_values(array_filter(
@@ -279,7 +277,6 @@ final class OidcSettingsController extends Controller
                 'end_session_endpoint' => $settings->end_session_endpoint,
                 'scopes' => (string) $settings->scopes,
                 'groups_claim' => (string) $settings->groups_claim,
-                'trust_provider_email' => (bool) $settings->trust_provider_email,
                 'create_users' => (bool) $settings->create_users,
                 'sync_roles' => (bool) $settings->sync_roles,
                 'allowed_groups' => $settings->allowedGroupList(),

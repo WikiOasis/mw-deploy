@@ -18,9 +18,12 @@ use Illuminate\Support\Facades\Log;
  *
  *  * **Who this is.** The subject claim, and only the subject claim, once an
  *    account has one. Emails get reassigned; `sub` does not.
- *  * **Whether an existing account may be claimed.** Only on a *verified* email.
- *    An IdP that lets someone set an unverified address would otherwise be a way
- *    to walk into an existing account by typing its email into a profile page.
+ *  * **Whether an existing account may be claimed.** On the email address, and
+ *    the `email_verified` claim is not consulted. That check assumed a provider
+ *    which hands out accounts to strangers; this one is internal and gates access
+ *    to the application behind manual approval, so the address it states is
+ *    exactly as trustworthy as the identity it states. An account already linked
+ *    to a *different* subject is still never re-claimed — see below.
  *  * **What they may do.** Whatever the group mapping says, and nothing else.
  *    Permissions are never read from the IdP directly — groups map to roles, and
  *    roles are what the access screen already shows.
@@ -93,24 +96,6 @@ final class OidcUserProvisioner
             : User::query()->whereRaw('LOWER(email) = ?', [$identity->email])->first();
 
         if ($byEmail !== null) {
-            if (! $identity->emailVerified) {
-                /*
-                 * Two different failures, and telling them apart is the
-                 * difference between an administrator changing one setting and an
-                 * administrator hunting through logs. `false` is the provider
-                 * declining to vouch for the address; null is a provider that
-                 * sends no `email_verified` claim at all, on an install that has
-                 * not said to trust it.
-                 */
-                throw OidcException::because(
-                    $identity->emailVerifiedStated === false
-                        ? 'Your identity provider says your email address is not verified, so it cannot be linked to the existing account here. Verify it with the provider, or ask an administrator to link the account.'
-                        : 'Your identity provider did not say whether your email address is verified, and this console is set not to assume it. An administrator can allow it on the sign-in settings screen, or link the account by hand.',
-                    'refused to claim account '.$byEmail->getKey().': email_verified was '
-                        .($identity->emailVerifiedStated === false ? 'false' : 'absent'),
-                );
-            }
-
             /*
              * An account already claimed by a different subject is not
              * re-claimed on the strength of an email address. Reaching here
@@ -163,6 +148,8 @@ final class OidcUserProvisioner
         // callback refuses password sign-in for these accounts outright.
         $user->password = null;
         $user->oidc_subject = $identity->subject;
+        // Recorded, not required: the claim decides whether the local address
+        // counts as verified, and no longer who may sign in.
         $user->email_verified_at = $identity->emailVerified ? now() : null;
         $user->oidc_synced_at = now();
         $user->save();
@@ -192,7 +179,7 @@ final class OidcUserProvisioner
                 ->whereKeyNot($user->getKey())
                 ->exists();
 
-        if ($emailIsFree && $identity->emailVerified) {
+        if ($emailIsFree) {
             $user->email = $identity->email;
         }
 
