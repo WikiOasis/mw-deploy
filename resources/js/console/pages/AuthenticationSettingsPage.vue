@@ -497,9 +497,10 @@ const save = async () => {
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <p class="text-xs text-fg-subtle">
                         {{ linkedAccounts }} account{{ linkedAccounts === 1 ? '' : 's' }} currently sign in this
-                        way. They have no password, so the provider is their only gate — enforce MFA there,
-                        because this console does not ask those accounts to enrol TOTP. An account that keeps a
-                        password alongside single sign-on still has to.
+                        way. This console does not ask any of them to enrol TOTP — the second factor is the
+                        provider's to enforce, so make sure it does. An account that keeps a password alongside
+                        can still be entered without the provider seeing it, which is what switching password
+                        sign-in off above closes.
                     </p>
 
                     <div class="flex gap-2">

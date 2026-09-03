@@ -173,12 +173,18 @@ What it will not do:
   produces a code before it holds a session. Enrolled is enrolled, whichever door
   you came through.
 
-**Who has to enrol TOTP here.** An account whose only way in is the provider — no
-local password — is exempt: the provider is the sole gate, and the second factor
-is the provider's to enforce. Enforce MFA there, because this console has stopped
-asking for one. An account that keeps a password alongside SSO is *not* exempt and
-must still enrol, because that password is a way in the provider never sees.
-Enrolment stays available to everyone either way, exempt or not.
+**Who has to enrol TOTP here.** Any account linked to the provider is exempt —
+including one an administrator created locally and later signed into with SSO. The
+second factor is the provider's to enforce for those accounts, so enforce MFA
+there: this console has stopped asking. Accounts the provider knows nothing about,
+which is every account on an install without SSO, are unchanged.
+
+The exemption follows the account rather than the session, which has a cost worth
+naming: a linked account that keeps a local password can be entered by that
+password without the provider seeing it, and so without its MFA. **Switching
+password sign-in off is what closes that**, and is the intended configuration for
+an install relying on the provider for its second factor. Enrolment stays
+available to everyone either way, exempt or not.
 
 ## What is new relative to `mwdeploy`
 

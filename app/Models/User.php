@@ -122,20 +122,22 @@ class User extends Authenticatable
      * True when this account can change production and therefore must have TOTP
      * enrolled *here*.
      *
-     * Accounts that can only be entered through the identity provider are exempt:
-     * they have no password, so the provider is the sole gate, and second-factor
-     * policy is the provider's to enforce. Demanding a second, console-local
-     * factor on top would be asking someone to carry two authenticators for one
-     * sign-in, and section 3.5.1 is about there being a second factor at all —
-     * not about this application owning it.
+     * Accounts linked to the identity provider are exempt. Second-factor policy
+     * is the provider's to enforce for them, and demanding a second,
+     * console-local factor on top is asking someone to carry two authenticators
+     * for one sign-in. Section 3.5.1 is about there being a second factor at all
+     * — not about this application owning it.
      *
-     * An account that also has a password is not exempt, and that distinction is
-     * the whole point: a password is a way in that never touches the provider, so
-     * whatever MFA the provider enforces is not on that path.
+     * The exemption follows the account, not the session, and that is a deliberate
+     * choice with a cost: a linked account that *also* keeps a local password can
+     * be entered by that password without the provider seeing it, and so without
+     * whatever MFA the provider enforces. Switching password sign-in off (see
+     * OidcSettings::passwordLoginAllowed()) is what closes that, and is the
+     * intended configuration for an install that relies on this.
      */
     public function requiresTwoFactor(): bool
     {
-        if ($this->signsInOnlyWithSingleSignOn()) {
+        if ($this->usesSingleSignOn()) {
             return false;
         }
 
@@ -143,11 +145,11 @@ class User extends Authenticatable
     }
 
     /**
-     * Whether the identity provider is this account's only way in.
+     * Whether this account is linked to the identity provider.
      */
-    public function signsInOnlyWithSingleSignOn(): bool
+    public function usesSingleSignOn(): bool
     {
-        return $this->oidc_subject !== null && ! filled($this->password);
+        return $this->oidc_subject !== null;
     }
 
     public function hasTwoFactorEnabled(): bool
