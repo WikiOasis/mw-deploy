@@ -16,6 +16,12 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * Read-only accounts are unaffected, and the enrolment screen itself is exempt
  * so people can actually get enrolled.
+ *
+ * Accounts that can only be entered through the identity provider are exempt too
+ * — see User::requiresTwoFactor(). They have no password, so the provider is the
+ * only gate and the second factor is the provider's to enforce; an account that
+ * keeps a password alongside is still required to enrol, because that password is
+ * a way in the provider never sees.
  */
 final class RequireTwoFactor
 {

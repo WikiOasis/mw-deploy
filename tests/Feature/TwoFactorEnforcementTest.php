@@ -114,6 +114,78 @@ final class TwoFactorEnforcementTest extends TestCase
     }
 
     #[Test]
+    public function an_account_that_can_only_sign_in_through_the_provider_is_not_forced_to_enrol(): void
+    {
+        /*
+         * The provider is that account's only gate — it has no password — so the
+         * second factor is the provider's to enforce, and asking someone to carry
+         * a second authenticator for one sign-in buys nothing. What it does buy
+         * is a console its own SSO accounts cannot reach.
+         */
+        $user = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $user->forceFill(['password' => null, 'oidc_subject' => 'sso-1'])->save();
+
+        $this->assertFalse($user->fresh()->requiresTwoFactor());
+
+        $this->actingAs($user->fresh())->get('/')->assertOk();
+        $this->actingAs($user->fresh())->get('/deployments')->assertOk();
+        $this->actingAs($user->fresh())->getJson(route('api.deployments.index'))->assertOk();
+    }
+
+    #[Test]
+    public function an_sso_account_that_also_has_a_password_must_still_enrol(): void
+    {
+        /*
+         * The distinction that makes the exemption safe: a password is a way in
+         * the provider never sees, so whatever MFA the provider enforces is not
+         * on that path.
+         */
+        $user = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $user->forceFill(['oidc_subject' => 'sso-2'])->save();
+
+        $this->assertTrue($user->fresh()->requiresTwoFactor());
+
+        $this->actingAs($user->fresh())->get('/')->assertRedirect(route('two-factor.setup'));
+    }
+
+    #[Test]
+    public function an_account_with_no_password_can_still_enrol(): void
+    {
+        /*
+         * Not required to, but not prevented from either. Enrolment is behind
+         * Fortify's password confirmation, and an account provisioned by single
+         * sign-on has no password to confirm — so the two-factor screen the
+         * account menu offers everyone was a dead end for exactly those accounts.
+         *
+         * A passwordless account is therefore confirmed by virtue of the session
+         * the identity provider already gave it.
+         */
+        $user = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $user->forceFill(['password' => null, 'oidc_subject' => 'sso-1'])->save();
+
+        $this->actingAs($user)->get(route('two-factor.setup'))->assertOk();
+
+        $this->actingAs($user)
+            ->post('/user/two-factor-authentication')
+            ->assertRedirect();
+
+        $this->assertNotNull($user->fresh()->two_factor_secret);
+    }
+
+    #[Test]
+    public function an_account_with_a_password_still_has_to_confirm_it_to_enrol(): void
+    {
+        // The exemption is for accounts that have no password, not for everyone.
+        $user = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+
+        $this->actingAs($user)
+            ->post('/user/two-factor-authentication')
+            ->assertRedirect(route('password.confirm'));
+
+        $this->assertNull($user->fresh()->two_factor_secret);
+    }
+
+    #[Test]
     public function there_is_no_self_registration_route(): void
     {
         // Accounts are created by someone holding users.manage, or by

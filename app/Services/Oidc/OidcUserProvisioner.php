@@ -94,9 +94,20 @@ final class OidcUserProvisioner
 
         if ($byEmail !== null) {
             if (! $identity->emailVerified) {
+                /*
+                 * Two different failures, and telling them apart is the
+                 * difference between an administrator changing one setting and an
+                 * administrator hunting through logs. `false` is the provider
+                 * declining to vouch for the address; null is a provider that
+                 * sends no `email_verified` claim at all, on an install that has
+                 * not said to trust it.
+                 */
                 throw OidcException::because(
-                    'The identity provider did not confirm your email address, so it cannot be linked to an existing account here. Ask an administrator to link it.',
-                    'refused to claim account '.$byEmail->getKey().' on an unverified email',
+                    $identity->emailVerifiedStated === false
+                        ? 'Your identity provider says your email address is not verified, so it cannot be linked to the existing account here. Verify it with the provider, or ask an administrator to link the account.'
+                        : 'Your identity provider did not say whether your email address is verified, and this console is set not to assume it. An administrator can allow it on the sign-in settings screen, or link the account by hand.',
+                    'refused to claim account '.$byEmail->getKey().': email_verified was '
+                        .($identity->emailVerifiedStated === false ? 'false' : 'absent'),
                 );
             }
 

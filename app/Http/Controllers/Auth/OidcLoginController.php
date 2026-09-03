@@ -171,23 +171,34 @@ final class OidcLoginController extends Controller
     }
 
     /**
-     * The ID token's claims, topped up from userinfo when the groups claim is not
-     * in the token.
+     * The ID token's claims, topped up from userinfo for anything the token did
+     * not carry.
      *
-     * Several providers — Authentik and Okta among them — will only release group
-     * membership from userinfo, so a console that read the token alone would see
-     * every SSO account arrive with no roles. userinfo's `sub` must match the
-     * token's: a mismatch means the two are describing different people, and the
-     * spec says to reject it rather than merge it.
+     * Which claims land in the ID token and which only in userinfo is entirely up
+     * to the provider, and several — Authentik in its default configuration among
+     * them — put a minimal set in the token and everything else behind userinfo.
+     * A console that read the token alone would see those accounts arrive with no
+     * groups, no name, and no `email_verified`, and would refuse to link them for
+     * reasons that had nothing to do with the person signing in.
+     *
+     * So the test is per claim: if anything the flow actually needs is missing,
+     * ask userinfo once. userinfo's `sub` must match the token's — a mismatch
+     * means the two are describing different people, and the spec says to reject
+     * it rather than merge it.
      *
      * @param  array<string, mixed>  $claims
      * @return array<string, mixed>
      */
     private function withUserinfo(OidcSettings $settings, array $claims, ?string $accessToken): array
     {
-        $groupsClaim = (string) ($settings->groups_claim ?: 'groups');
+        $needed = ['email', 'email_verified', 'name', (string) ($settings->groups_claim ?: 'groups')];
 
-        if ($accessToken === null || data_get($claims, $groupsClaim) !== null) {
+        $missing = array_filter(
+            $needed,
+            static fn (string $claim): bool => data_get($claims, $claim) === null,
+        );
+
+        if ($accessToken === null || $missing === []) {
             return $claims;
         }
 

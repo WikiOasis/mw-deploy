@@ -79,6 +79,14 @@ Accounts can sign in through a third-party OpenID Connect provider — Authentik
 Keycloak, Entra, Okta, anything that publishes a discovery document — with the
 provider's groups deciding which console roles they hold.
 
+**Password sign-in can be switched off** once SSO is on and working, making the
+provider the only way in. Three things keep that from being a way to lock yourself
+out: it cannot be switched off until SSO is usable, it stops applying by itself if
+SSO is later disabled or left half-configured, and
+`CONSOLE_FORCE_PASSWORD_LOGIN=true` in the environment puts the form back for
+someone with a shell on the box — which is the state you are in on the day the
+provider is what broke.
+
 **The configuration lives in the database, not in `.env`.** It is edited at
 `/settings/authentication`, behind its own permission (`settings.manage`), because
 rotating a client secret, following the IdP to a new hostname or adding a group is
@@ -117,6 +125,13 @@ What it does with what the provider says:
   that lets someone type an arbitrary address into a profile page would be a way to
   walk into an account that already exists. Linking keeps that account's roles,
   its TOTP enrolment and its deployment history.
+
+  `email_verified` is optional in the spec, and several providers — Authentik among
+  them — never send it. **Trust email addresses the provider does not mark as
+  verified** covers that case, and is on by default: without it, an account that
+  already exists here could never be linked. A provider that explicitly answers
+  `email_verified: false` is refused either way — that is it telling you it does
+  not vouch for the address.
 * **Groups map to roles, never to permissions.** A group lands someone in the same
   bucket an administrator would have put them in by hand, so `/access` keeps
   telling the whole truth about what an account can do.
@@ -150,12 +165,17 @@ What it will not do:
   by SSO have no password at all — not one nobody knows — and password sign-in for
   them is refused outright rather than resting on a hash comparison against an
   empty column.
-* **Satisfy the TOTP requirement.** An account with TOTP enrolled is sent to the
-  same two-factor challenge a password sign-in would reach, and produces a code
-  before it holds a session; an account that must enrol still has to. Section
-  3.5.1 is about this console's blast radius, not about how well you were
-  authenticated somewhere else — if SSO could establish the session on its own,
-  leaked IdP credentials would be enough to deploy.
+* **Skip a TOTP challenge that is already set up.** An account with TOTP enrolled
+  is sent to the same two-factor challenge a password sign-in would reach, and
+  produces a code before it holds a session. Enrolled is enrolled, whichever door
+  you came through.
+
+**Who has to enrol TOTP here.** An account whose only way in is the provider — no
+local password — is exempt: the provider is the sole gate, and the second factor
+is the provider's to enforce. Enforce MFA there, because this console has stopped
+asking for one. An account that keeps a password alongside SSO is *not* exempt and
+must still enrol, because that password is a way in the provider never sees.
+Enrolment stays available to everyone either way, exempt or not.
 
 ## What is new relative to `mwdeploy`
 

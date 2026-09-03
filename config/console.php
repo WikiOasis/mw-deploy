@@ -21,6 +21,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Break-glass password sign-in
+    |--------------------------------------------------------------------------
+    |
+    | An install that has single sign-on working may switch the password form off
+    | (see /settings/authentication). This puts it back, from the one place that
+    | is reachable without signing in: the environment file on the box.
+    |
+    | It is for the day the identity provider is what broke — a bad client
+    | secret, an expired certificate, a hostname that moved — when the console
+    | still has to be usable and the setting that would fix it is behind the
+    | sign-in page it is blocking. Set it, get in with a local account, put the
+    | provider right, then unset it.
+    |
+    */
+
+    'force_password_login' => filter_var(
+        env('CONSOLE_FORCE_PASSWORD_LOGIN', false),
+        FILTER_VALIDATE_BOOLEAN,
+    ),
+
+    /*
+    |--------------------------------------------------------------------------
     | Installed apps
     |--------------------------------------------------------------------------
     |

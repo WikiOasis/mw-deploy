@@ -377,6 +377,88 @@ final class OidcLoginTest extends TestCase
     }
 
     #[Test]
+    public function a_provider_that_sends_no_email_verified_claim_can_still_link_an_account(): void
+    {
+        /*
+         * The Authentik case, and the reason this setting exists: the claim is
+         * optional in the spec and plenty of providers never send it, which left
+         * every attempt to link an existing account refused for a reason that had
+         * nothing to do with the person signing in.
+         */
+        $this->idp->configure(['trust_provider_email' => true]);
+
+        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+
+        // No email_verified key at all, as against one set to false.
+        $this->signIn(['sub' => 'authentik-1', 'email' => $existing->email]);
+
+        $this->assertAuthenticatedAs($existing->fresh());
+        $this->assertSame('authentik-1', $existing->fresh()->oidc_subject);
+    }
+
+    #[Test]
+    public function a_missing_email_verified_claim_is_refused_when_the_provider_is_not_trusted(): void
+    {
+        $this->idp->configure(['trust_provider_email' => false]);
+
+        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+
+        $this->signIn(['sub' => 'authentik-2', 'email' => $existing->email])
+            ->assertRedirect(route('login'))
+            ->assertSessionHasErrors('oidc');
+
+        $this->assertGuest();
+        $this->assertNull($existing->fresh()->oidc_subject);
+    }
+
+    #[Test]
+    public function an_explicit_email_verified_false_is_refused_even_when_the_provider_is_trusted(): void
+    {
+        // Trusting a provider that says nothing is a decision about a gap. A
+        // provider that says "no" has answered, and the answer stands.
+        $this->idp->configure(['trust_provider_email' => true]);
+
+        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+
+        $this->signIn(['sub' => 'attacker', 'email' => $existing->email, 'email_verified' => false])
+            ->assertRedirect(route('login'))
+            ->assertSessionHasErrors('oidc');
+
+        $this->assertGuest();
+        $this->assertNull($existing->fresh()->oidc_subject);
+    }
+
+    #[Test]
+    public function claims_the_token_leaves_out_are_read_from_userinfo(): void
+    {
+        /*
+         * Authentik's default configuration puts a minimal set of claims in the
+         * ID token and everything else behind userinfo. Asking only when the
+         * groups claim was missing meant a token carrying groups but no email
+         * details was never topped up.
+         */
+        $this->idp->configure();
+        $role = Role::factory()->create(['name' => 'ops']);
+        OidcRoleMapping::create(['group' => 'ops', 'role_id' => $role->getKey()]);
+
+        $existing = $this->userWithPermissions([], twoFactor: false);
+
+        $this->signIn(
+            ['sub' => 'minimal-token', 'groups' => ['ops']],
+            userinfo: [
+                'sub' => 'minimal-token',
+                'email' => $existing->email,
+                'email_verified' => true,
+                'name' => 'From Userinfo',
+            ],
+        );
+
+        $this->assertAuthenticatedAs($existing->fresh());
+        $this->assertSame('From Userinfo', $existing->fresh()->name);
+        $this->assertSame(['ops'], $existing->fresh(['roles'])->roles->pluck('name')->all());
+    }
+
+    #[Test]
     public function an_unverified_email_cannot_claim_an_existing_account(): void
     {
         $this->idp->configure();
@@ -707,6 +789,82 @@ final class OidcLoginTest extends TestCase
         ])->assertSessionHasErrors('email');
 
         $this->assertGuest();
+    }
+
+    #[Test]
+    public function password_sign_in_can_be_switched_off_once_single_sign_on_works(): void
+    {
+        $this->idp->configure(['password_login_enabled' => false]);
+
+        $user = User::factory()->create([
+            'email' => 'local@wikioasis.org',
+            'password' => Hash::make('a-very-long-password'),
+        ]);
+
+        // Refused at the endpoint, not merely hidden on the page: a form that is
+        // not rendered is not a closed door.
+        $this->post(route('login.store'), [
+            'email' => 'local@wikioasis.org',
+            'password' => 'a-very-long-password',
+        ])->assertSessionHasErrors();
+
+        $this->assertGuest();
+
+        $this->get(route('login'))
+            ->assertOk()
+            ->assertSee('Sign in with Example SSO')
+            ->assertDontSee('Reset your password')
+            ->assertSee('Password sign-in is switched off');
+
+        $this->assertNotNull($user->fresh());
+    }
+
+    #[Test]
+    public function switching_passwords_off_cannot_lock_everyone_out(): void
+    {
+        /*
+         * The setting is allowed to make password sign-in unavailable. It is not
+         * allowed to make the console unreachable — so it stops applying the
+         * moment single sign-on cannot be used, which is the state an install
+         * lands in when the provider's configuration goes bad.
+         */
+        $this->idp->configure(['password_login_enabled' => false, 'enabled' => false]);
+
+        User::factory()->create([
+            'email' => 'local@wikioasis.org',
+            'password' => Hash::make('a-very-long-password'),
+        ]);
+
+        $this->post(route('login.store'), [
+            'email' => 'local@wikioasis.org',
+            'password' => 'a-very-long-password',
+        ]);
+
+        $this->assertAuthenticated();
+    }
+
+    #[Test]
+    public function the_environment_can_force_the_password_form_back_on(): void
+    {
+        // The break-glass path: a shell on the box, no database access needed.
+        $this->idp->configure(['password_login_enabled' => false]);
+        config()->set('console.force_password_login', true);
+
+        User::factory()->create([
+            'email' => 'local@wikioasis.org',
+            'password' => Hash::make('a-very-long-password'),
+        ]);
+
+        // The form is back on the page — checked while still a guest, because
+        // Fortify redirects an authenticated request away from sign-in.
+        $this->get(route('login'))->assertOk()->assertSee('Reset your password');
+
+        $this->post(route('login.store'), [
+            'email' => 'local@wikioasis.org',
+            'password' => 'a-very-long-password',
+        ]);
+
+        $this->assertAuthenticated();
     }
 
     #[Test]
