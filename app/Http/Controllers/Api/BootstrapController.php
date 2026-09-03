@@ -77,6 +77,7 @@ final class BootstrapController extends Controller
                 'manage_targets' => $user->hasPermission(Permissions::TARGETS_MANAGE),
                 'manage_users' => $user->hasPermission(Permissions::USERS_MANAGE),
                 'manage_roles' => $user->hasPermission(Permissions::ROLES_MANAGE),
+                'manage_settings' => $user->hasPermission(Permissions::SETTINGS_MANAGE),
                 'undeploy_version' => $user->hasPermission(Permissions::UNDEPLOY_VERSION),
             ],
             'settings' => [

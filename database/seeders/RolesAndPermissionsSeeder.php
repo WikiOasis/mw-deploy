@@ -21,7 +21,8 @@ use Illuminate\Database\Seeder;
  *
  * Note what the non-ops roles deliberately lack: `mediawiki-admins` can push
  * code to every version but cannot remove a core version, and only `ops` can
- * force-fail a stuck deployment or redefine what a role grants.
+ * force-fail a stuck deployment, redefine what a role grants, or change which
+ * identity provider the console signs people in through.
  */
 final class RolesAndPermissionsSeeder extends Seeder
 {
@@ -36,7 +37,7 @@ final class RolesAndPermissionsSeeder extends Seeder
                 P::DEPLOY_ROLLBACK, P::DEPLOY_DECIDE, P::DEPLOY_POOL, P::DEPLOY_FORCE_FAIL,
                 P::UNDEPLOY_EXTENSION, P::UNDEPLOY_SKIN, P::UNDEPLOY_CONFIG, P::UNDEPLOY_VERSION,
                 P::VERSIONS_MANAGE, P::REPOSITORIES_MANAGE, P::PATCHES_MANAGE,
-                P::TARGETS_MANAGE, P::USERS_MANAGE, P::ROLES_MANAGE,
+                P::TARGETS_MANAGE, P::USERS_MANAGE, P::ROLES_MANAGE, P::SETTINGS_MANAGE,
             ],
         ],
         'mediawiki-admins' => [

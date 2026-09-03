@@ -28,6 +28,15 @@ const consoleRoutes = [
         component: () => import('./console/pages/AccessPage.vue'),
         meta: { requires: 'manage_users' },
     },
+    {
+        // How people sign in, which is console configuration rather than any
+        // app's — and behind its own ability, because it decides which identity
+        // provider this console believes.
+        path: '/settings/authentication',
+        name: 'authentication-settings',
+        component: () => import('./console/pages/AuthenticationSettingsPage.vue'),
+        meta: { requires: 'manage_settings' },
+    },
 ];
 
 /**

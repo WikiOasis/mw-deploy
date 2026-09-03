@@ -39,6 +39,18 @@ final class Permissions
      */
     public const ROLES_MANAGE = 'roles.manage';
 
+    /**
+     * The console's own configuration — today, how people sign in: the OIDC
+     * provider's endpoints, its client credentials, and which of its groups map
+     * to which roles.
+     *
+     * Deliberately its own grant, and the sharpest one in the console: whoever
+     * holds it decides which identity provider is trusted to say who you are,
+     * and can point sign-in at an IdP of their choosing. That is a strictly
+     * larger act than editing a role, so it is not folded into ROLES_MANAGE.
+     */
+    public const SETTINGS_MANAGE = 'settings.manage';
+
     /*
      * -----------------------------------------------------------------------
      * Deployments app
@@ -119,6 +131,7 @@ final class Permissions
             self::CONSOLE => [
                 self::USERS_MANAGE,
                 self::ROLES_MANAGE,
+                self::SETTINGS_MANAGE,
             ],
             'deployments' => [
                 self::DEPLOYMENTS_ACCESS,
@@ -169,6 +182,7 @@ final class Permissions
         return [
             self::USERS_MANAGE => 'Manage accounts, and which roles each account holds',
             self::ROLES_MANAGE => 'Create roles and change which app permissions each role grants',
+            self::SETTINGS_MANAGE => 'Configure how people sign in: the single sign-on provider and its group-to-role mapping',
 
             self::DEPLOYMENTS_ACCESS => 'Open the Deployments app (read-only on its own)',
             self::DEPLOY_CORE => 'Deploy a MediaWiki core version',

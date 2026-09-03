@@ -328,7 +328,17 @@ Then in the UI, in this order:
    assign roles. A role only puts the Deployments tile on someone's launcher if it
    holds `apps.deployments.access` or one of the app's own permissions. Anyone with
    a deploy permission is redirected to `/two-factor/setup` until they enrol TOTP.
-7. A **staging-only** deployment of one small extension, as a smoke test, before
+7. **Single sign-on**, optionally (on `/settings/authentication`, behind
+   `settings.manage`) — point the console at your OpenID Connect provider and map
+   its groups to roles. Register the redirect URI the screen prints, read the
+   provider's configuration, add the client credentials, map at least one group,
+   then switch it on. Configuration is stored in the database, so none of this
+   needs a shell on the appserver. Every provider URL must be `https://`
+   (loopback aside). Password sign-in and `php artisan mwdeploy:create-user` keep
+   working either way — keep one local account for the day the IdP is what broke
+   — and TOTP still applies: an enrolled account signing in through the IdP is
+   sent to the same two-factor challenge as a password sign-in.
+8. A **staging-only** deployment of one small extension, as a smoke test, before
    anything targets production.
 
 ## The web user's home directory
