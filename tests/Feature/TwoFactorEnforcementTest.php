@@ -114,13 +114,13 @@ final class TwoFactorEnforcementTest extends TestCase
     }
 
     #[Test]
-    public function an_account_that_can_only_sign_in_through_the_provider_is_not_forced_to_enrol(): void
+    public function an_account_linked_to_the_provider_is_not_forced_to_enrol(): void
     {
         /*
-         * The provider is that account's only gate — it has no password — so the
-         * second factor is the provider's to enforce, and asking someone to carry
-         * a second authenticator for one sign-in buys nothing. What it does buy
-         * is a console its own SSO accounts cannot reach.
+         * The second factor is the provider's to enforce for these accounts, and
+         * asking someone to carry a second authenticator for one sign-in buys
+         * nothing. What it does buy is a console its own SSO accounts cannot
+         * reach.
          */
         $user = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
         $user->forceFill(['password' => null, 'oidc_subject' => 'sso-1'])->save();
@@ -133,15 +133,31 @@ final class TwoFactorEnforcementTest extends TestCase
     }
 
     #[Test]
-    public function an_sso_account_that_also_has_a_password_must_still_enrol(): void
+    public function a_linked_account_that_kept_its_password_is_exempt_too(): void
     {
         /*
-         * The distinction that makes the exemption safe: a password is a way in
-         * the provider never sees, so whatever MFA the provider enforces is not
-         * on that path.
+         * The common case, and the one the first pass got wrong: an account an
+         * administrator created locally and then signed into with the provider.
+         * The exemption follows the account, not the session.
+         *
+         * The cost is real and deliberate — that password is a way in the
+         * provider never sees, so its MFA is not on that path. Switching password
+         * sign-in off is what closes it.
          */
         $user = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
         $user->forceFill(['oidc_subject' => 'sso-2'])->save();
+
+        $this->assertFalse($user->fresh()->requiresTwoFactor());
+
+        $this->actingAs($user->fresh())->get('/')->assertOk();
+    }
+
+    #[Test]
+    public function a_local_account_with_no_provider_link_must_still_enrol(): void
+    {
+        // The requirement is unchanged for accounts the provider knows nothing
+        // about, which is every account on an install without single sign-on.
+        $user = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
 
         $this->assertTrue($user->fresh()->requiresTwoFactor());
 
