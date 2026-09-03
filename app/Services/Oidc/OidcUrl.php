@@ -82,11 +82,19 @@ final class OidcUrl
     }
 
     /**
-     * HTTP client options that stop a redirect from downgrading the connection.
+     * HTTP client options that hold a redirect to the same policy as the URL
+     * that was typed in.
      *
-     * Guzzle's default protocol list is `['http', 'https']`, so without this an
-     * IdP — or anything able to answer for it — could bounce a request carrying
-     * the client secret onto plain HTTP.
+     * Two halves, and both are needed:
+     *
+     *  * `protocols` — Guzzle's default list is `['http', 'https']`, so without
+     *    this an IdP, or anything able to answer for it, could bounce a request
+     *    carrying the client secret onto plain HTTP.
+     *  * `on_redirect` — the protocol list alone only checks the *scheme*. An
+     *    allowed HTTPS URL could still redirect to `https://169.254.169.254/`,
+     *    which passes the scheme check and would then be fetched by this host.
+     *    So every redirect target is put through `isAllowed()` as well, and a
+     *    target that fails it aborts the request instead of being followed.
      *
      * @return array<string, mixed>
      */
@@ -98,6 +106,19 @@ final class OidcUrl
                 'protocols' => ['https'],
                 'strict' => true,
                 'referer' => false,
+                /**
+                 * @param  mixed  $request  the request that was redirected
+                 * @param  mixed  $response  the redirect response
+                 * @param  mixed  $uri  the target, as a PSR-7 UriInterface
+                 */
+                'on_redirect' => static function ($request, $response, $uri): void {
+                    if (! self::isAllowed((string) $uri)) {
+                        throw OidcException::because(
+                            'The provider redirected the request somewhere this console will not follow.',
+                            'refused redirect target: '.(string) $uri,
+                        );
+                    }
+                },
             ],
         ];
     }
