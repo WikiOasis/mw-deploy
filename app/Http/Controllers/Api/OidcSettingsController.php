@@ -33,6 +33,7 @@ use Illuminate\Validation\Rule;
  */
 final class OidcSettingsController extends Controller
 {
+    /** The stored configuration, the mapping, and the redirect URI to register — never the secret. */
     public function show(Request $request): JsonResponse
     {
         $this->authorize(Permissions::SETTINGS_MANAGE);
@@ -40,6 +41,12 @@ final class OidcSettingsController extends Controller
         return response()->json($this->payload());
     }
 
+    /**
+     * Replace the configuration and the group mapping in one transaction.
+     *
+     * An absent `client_secret` keeps the stored one, so saving a form whose
+     * secret field shows a placeholder does not blank it out.
+     */
     public function update(Request $request): JsonResponse
     {
         $this->authorize(Permissions::SETTINGS_MANAGE);
@@ -262,6 +269,7 @@ final class OidcSettingsController extends Controller
         ];
     }
 
+    /** Who changed it, for the log. */
     private function actorId(): ?int
     {
         $user = request()->user();

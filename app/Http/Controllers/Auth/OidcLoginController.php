@@ -178,6 +178,7 @@ final class OidcLoginController extends Controller
         return [...$extra, ...$claims];
     }
 
+    /** Back to the sign-in page with the reason, where the password form is still an option. */
     private function refuse(string $message): RedirectResponse
     {
         return redirect()->route('login')->withErrors(['oidc' => $message]);

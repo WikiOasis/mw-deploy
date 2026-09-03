@@ -22,6 +22,7 @@ final class OidcRoleMapping extends Model
 {
     protected $table = 'oidc_role_mappings';
 
+    /** The console role this group grants. */
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);

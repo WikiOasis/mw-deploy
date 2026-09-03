@@ -185,6 +185,7 @@ final class Jwks
         return chr($tag).chr(0x80 | strlen($bytes)).$bytes.$value;
     }
 
+    /** Keyed by URI, so pointing the console at a different IdP does not read the old keys. */
     private function cacheKey(string $jwksUri): string
     {
         return 'oidc:jwks:'.sha1($jwksUri);

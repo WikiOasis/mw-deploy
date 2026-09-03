@@ -20,11 +20,16 @@ final class OidcException extends RuntimeException
         parent::__construct($message);
     }
 
+    /**
+     * A failure whose cause is worth a different line in the log than the one
+     * the person signing in is shown.
+     */
     public static function because(string $message, string $logContext = ''): self
     {
         return new self($message, $logContext === '' ? $message : $logContext);
     }
 
+    /** Single sign-on was attempted on an install that has not set it up. */
     public static function notConfigured(): self
     {
         return new self('Single sign-on is not configured on this console.');

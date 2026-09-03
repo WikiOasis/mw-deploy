@@ -10,6 +10,7 @@ namespace App\Services\Oidc;
  */
 final class Base64Url
 {
+    /** Lenient on purpose: a token from an encoder that left the padding on still decodes. */
     public static function decode(string $value): string
     {
         $decoded = base64_decode(strtr($value, '-_', '+/'), strict: false);
@@ -17,6 +18,7 @@ final class Base64Url
         return $decoded === false ? '' : $decoded;
     }
 
+    /** Padding stripped, because a JWT segment carries none. */
     public static function encode(string $value): string
     {
         return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
