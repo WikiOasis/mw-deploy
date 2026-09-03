@@ -9,9 +9,11 @@ use App\Models\OidcSettings;
 use App\Models\Role;
 use App\Models\User;
 use App\Support\Permissions;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 /**
@@ -174,6 +176,112 @@ final class OidcSettingsTest extends TestCase
     }
 
     #[Test]
+    public function it_refuses_cleartext_endpoints(): void
+    {
+        /*
+         * The token endpoint carries the client secret and the key set decides
+         * whether an ID token is genuine. Neither may travel over plain HTTP, so
+         * this is a validation rule rather than advice in the documentation.
+         */
+        $admin = $this->settingsAdmin();
+
+        foreach (['issuer', 'authorization_endpoint', 'token_endpoint', 'userinfo_endpoint', 'jwks_uri', 'discovery_url'] as $field) {
+            $this->actingAs($admin)
+                ->putJson(route('api.settings.oidc.update'), $this->payload([
+                    $field => 'http://sso.example.test/insecure',
+                ]))
+                ->assertStatus(422)
+                ->assertJsonValidationErrors($field);
+        }
+    }
+
+    #[Test]
+    public function it_refuses_an_endpoint_in_the_link_local_range(): void
+    {
+        // Nothing legitimate serves OpenID Connect from 169.254.0.0/16; it is
+        // where a cloud instance keeps its credentials.
+        $this->actingAs($this->settingsAdmin())
+            ->putJson(route('api.settings.oidc.update'), $this->payload([
+                'jwks_uri' => 'https://169.254.169.254/latest/meta-data/',
+            ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('jwks_uri');
+    }
+
+    #[Test]
+    public function a_loopback_provider_is_allowed_without_tls(): void
+    {
+        // A developer running an IdP on localhost has no certificate for it, and
+        // no network for a packet to be read on.
+        $this->actingAs($this->settingsAdmin())
+            ->putJson(route('api.settings.oidc.update'), $this->payload([
+                'issuer' => 'http://localhost:9000/application/o/console',
+                'authorization_endpoint' => 'http://localhost:9000/authorize',
+                'token_endpoint' => 'http://localhost:9000/token',
+                'userinfo_endpoint' => 'http://localhost:9000/userinfo',
+                'jwks_uri' => 'http://localhost:9000/jwks',
+                'discovery_url' => 'http://localhost:9000/.well-known/openid-configuration',
+            ]))
+            ->assertOk();
+
+        $this->assertTrue(OidcSettings::current()->enabled);
+    }
+
+    #[Test]
+    public function discovery_refuses_a_provider_that_advertises_cleartext_endpoints(): void
+    {
+        Http::fake([
+            '*' => Http::response([
+                'issuer' => 'https://sso.example.test',
+                'authorization_endpoint' => 'https://sso.example.test/authorize',
+                'token_endpoint' => 'http://sso.example.test/token',
+            ]),
+        ]);
+
+        $this->actingAs($this->settingsAdmin())
+            ->postJson(route('api.settings.oidc.discover'), ['discovery_url' => 'https://sso.example.test'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('discovery_url');
+    }
+
+    #[Test]
+    public function discovery_will_not_fetch_a_cleartext_or_link_local_url(): void
+    {
+        Http::fake();
+
+        foreach (['http://sso.example.test', 'https://169.254.169.254/'] as $url) {
+            $this->actingAs($this->settingsAdmin())
+                ->postJson(route('api.settings.oidc.discover'), ['discovery_url' => $url])
+                ->assertStatus(422)
+                ->assertJsonValidationErrors('discovery_url');
+        }
+
+        // Refused before anything left the box, not after.
+        Http::assertNothingSent();
+    }
+
+    #[Test]
+    public function there_is_only_ever_one_settings_row(): void
+    {
+        /*
+         * Two rows would be two answers to "who are you", and sign-in would use
+         * whichever the database returned first. The column is uniquely indexed,
+         * so the second insert fails rather than creating a rival configuration.
+         */
+        $admin = $this->settingsAdmin();
+
+        $this->actingAs($admin)->putJson(route('api.settings.oidc.update'), $this->payload())->assertOk();
+        $this->actingAs($admin)->putJson(route('api.settings.oidc.update'), $this->payload(['label' => 'Renamed']))->assertOk();
+
+        $this->assertSame(1, OidcSettings::query()->count());
+        $this->assertSame('Renamed', OidcSettings::current()->label);
+
+        $this->expectException(QueryException::class);
+
+        OidcSettings::query()->create(['label' => 'A rival configuration']);
+    }
+
+    #[Test]
     public function group_mappings_are_saved_and_removed(): void
     {
         $admin = $this->settingsAdmin();
@@ -287,6 +395,27 @@ final class OidcSettingsTest extends TestCase
         $settings = new OidcSettings(['scopes' => 'profile email']);
 
         $this->assertContains('openid', $settings->scopeList());
+    }
+
+    #[Test]
+    public function rolling_back_refuses_while_passwordless_accounts_exist(): void
+    {
+        /*
+         * `up()` made users.password nullable, so `down()` has to put that
+         * contract back — and there is nothing safe to write into the column for
+         * an account provisioned by single sign-on. Inventing a password would
+         * leave an account whose password nobody knows but which the login form
+         * will happily try; deleting the account would take its deployment
+         * history with it. So the rollback stops and names what is in the way.
+         */
+        User::factory()->create(['password' => null]);
+
+        $migration = require database_path('migrations/2026_07_29_090000_create_oidc_tables.php');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Cannot roll back');
+
+        $migration->down();
     }
 
     private function settingsAdmin(): User

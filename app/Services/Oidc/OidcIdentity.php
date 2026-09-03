@@ -50,7 +50,12 @@ final class OidcIdentity
      * Dot notation is accepted so a nested claim — Entra's
      * `resource_access.console.roles`, for instance — can be named without this
      * needing to know anything about the IdP. Both shapes real providers use are
-     * handled: a JSON array, and a single space-separated string.
+     * handled: a JSON array, and a single comma-separated string.
+     *
+     * Commas only, never whitespace. Group names contain spaces —
+     * `Domain Admins` is the canonical example — and splitting on whitespace
+     * would turn that one group into two, either of which could then match an
+     * allow-list entry or a role mapping that was never meant for it.
      *
      * @param  array<string, mixed>  $claims
      * @return list<string>
@@ -60,7 +65,7 @@ final class OidcIdentity
         $raw = Arr::get($claims, $claimName === '' ? 'groups' : $claimName);
 
         if (is_string($raw)) {
-            $raw = preg_split('/[\s,]+/', $raw, flags: PREG_SPLIT_NO_EMPTY) ?: [];
+            $raw = explode(',', $raw);
         }
 
         if (! is_array($raw)) {

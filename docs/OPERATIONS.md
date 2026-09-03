@@ -333,10 +333,11 @@ Then in the UI, in this order:
    its groups to roles. Register the redirect URI the screen prints, read the
    provider's configuration, add the client credentials, map at least one group,
    then switch it on. Configuration is stored in the database, so none of this
-   needs a shell on the appserver. Password sign-in and
-   `php artisan mwdeploy:create-user` keep working either way — keep one local
-   account for the day the IdP is what broke — and enforced TOTP still applies to
-   anything that can change production.
+   needs a shell on the appserver. Every provider URL must be `https://`
+   (loopback aside). Password sign-in and `php artisan mwdeploy:create-user` keep
+   working either way — keep one local account for the day the IdP is what broke
+   — and TOTP still applies: an enrolled account signing in through the IdP is
+   sent to the same two-factor challenge as a password sign-in.
 8. A **staging-only** deployment of one small extension, as a smoke test, before
    anything targets production.
 

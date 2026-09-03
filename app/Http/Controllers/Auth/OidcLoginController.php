@@ -125,17 +125,47 @@ final class OidcLoginController extends Controller
             return $this->refuse($exception->getMessage());
         }
 
-        // No "remember me": the IdP owns session length, and a long-lived cookie
-        // on a console that can deploy to production would outlive whatever the
-        // IdP decided about how long this person stays signed in.
+        $intended = is_string($flow['intended'] ?? null) ? $flow['intended'] : null;
+
+        /*
+         * An account with TOTP enrolled still has to produce a code, exactly as
+         * it would signing in with a password.
+         *
+         * This is the whole point of section 3.5.1: the requirement is about
+         * what this console can do to production, not about how convincingly
+         * someone authenticated somewhere else. Handing the session over here
+         * would have made single sign-on a way to skip it — an account whose
+         * IdP credentials leaked could have deployed without the second factor
+         * its owner had deliberately enrolled.
+         *
+         * The hand-off is Fortify's own: `login.id` is the challenged user, and
+         * TwoFactorAuthenticatedSessionController establishes the session once a
+         * valid code or recovery code arrives.
+         */
+        if ($user->hasTwoFactorEnabled()) {
+            $request->session()->put('login.id', $user->getKey());
+            // No "remember me": the IdP owns session length, and a long-lived
+            // cookie on a console that can deploy to production would outlive
+            // whatever the IdP decided about how long this person stays signed in.
+            $request->session()->put('login.remember', false);
+
+            if ($intended !== null) {
+                // Fortify's post-challenge redirect honours the intended URL, so
+                // the deployment someone was linked to still opens.
+                $request->session()->put('url.intended', $intended);
+            }
+
+            Log::info('OIDC sign-in, awaiting the two-factor code', ['user_id' => $user->getKey()]);
+
+            return redirect()->route('two-factor.login');
+        }
+
         Auth::login($user);
 
         // Fresh session id on privilege change, as with any other sign-in.
         $request->session()->regenerate();
 
-        Log::info('OIDC sign-in', ['user_id' => $user->getKey(), 'email' => $user->email]);
-
-        $intended = is_string($flow['intended'] ?? null) ? $flow['intended'] : null;
+        Log::info('OIDC sign-in', ['user_id' => $user->getKey()]);
 
         return redirect()->to($intended ?? '/');
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -22,6 +23,19 @@ return new class extends Migration
     {
         Schema::create('oidc_settings', function (Blueprint $table) {
             $table->id();
+
+            /*
+             * The single-row invariant, enforced by the database rather than by
+             * everyone remembering it. Every write goes to the row where
+             * `singleton` is true, and the unique index means a second one
+             * cannot be inserted — not by a concurrent first save from two
+             * browser tabs, and not by hand.
+             *
+             * An install trusts one identity provider; two rows would be two
+             * answers to "who are you", and sign-in would use whichever the
+             * database happened to return first.
+             */
+            $table->boolean('singleton')->default(true)->unique();
 
             $table->boolean('enabled')->default(false);
 
@@ -118,9 +132,36 @@ return new class extends Migration
 
     public function down(): void
     {
+        /*
+         * Rolling back has to restore the contract `up()` changed, and
+         * users.password was non-null before it. Accounts this feature
+         * provisioned have no password at all, so there is nothing safe to put
+         * in the column for them: inventing one would leave an account whose
+         * password nobody knows but which the login form will happily try, and
+         * deleting them would take their deployment history with them.
+         *
+         * So the rollback stops, and says which accounts are in the way. An
+         * administrator gives them passwords (or removes them) and runs it
+         * again. An install that never used single sign-on rolls back cleanly.
+         */
+        $passwordless = DB::table('users')->whereNull('password')->count();
+
+        if ($passwordless > 0) {
+            throw new RuntimeException(
+                'Cannot roll back: '.$passwordless.' account(s) were provisioned by single sign-on and have no password, '.
+                'and users.password is about to be made non-null again. Give those accounts passwords, or remove them, then retry.',
+            );
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $table->dropUnique(['oidc_subject']);
             $table->dropColumn(['oidc_subject', 'oidc_synced_at']);
+        });
+
+        // Its own statement: a column change alongside two drops in one
+        // blueprint is the kind of thing that behaves differently per driver.
+        Schema::table('users', function (Blueprint $table) {
+            $table->string('password')->nullable(false)->change();
         });
 
         Schema::dropIfExists('oidc_role_mappings');

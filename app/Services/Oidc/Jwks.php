@@ -7,6 +7,7 @@ namespace App\Services\Oidc;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Throwable;
 
 /**
  * The IdP's public signing keys, cached, and turned into something openssl will
@@ -66,13 +67,33 @@ final class Jwks
      */
     private function keys(string $jwksUri): array
     {
+        /*
+         * These keys decide whether an ID token is genuine, so they are never
+         * fetched over a connection that could be tampered with — and never over
+         * a redirect that downgrades one.
+         */
+        if (! OidcUrl::isAllowed($jwksUri)) {
+            throw OidcException::because(
+                'Single sign-on is configured with an insecure key set URL, so token signatures cannot be trusted.',
+                'refused a non-HTTPS jwks_uri',
+            );
+        }
+
         $cached = Cache::remember($this->cacheKey($jwksUri), self::TTL, function () use ($jwksUri): array {
             try {
-                $response = Http::timeout(10)->acceptJson()->get($jwksUri);
+                $response = Http::timeout(10)
+                    ->acceptJson()
+                    ->withOptions(OidcUrl::redirectOptions())
+                    ->get($jwksUri);
             } catch (ConnectionException $exception) {
                 throw OidcException::because(
                     'Could not reach the identity provider to check the token signature.',
                     'JWKS fetch failed: '.$exception->getMessage(),
+                );
+            } catch (Throwable $exception) {
+                throw OidcException::because(
+                    'The identity provider redirected the key set request somewhere this console will not follow.',
+                    'JWKS request rejected: '.$exception->getMessage(),
                 );
             }
 

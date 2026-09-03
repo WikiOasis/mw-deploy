@@ -101,6 +101,22 @@ final class OidcUserProvisioner
             }
 
             /*
+             * An account already claimed by a different subject is not
+             * re-claimed on the strength of an email address. Reaching here
+             * means the IdP is now asserting that a second identity owns an
+             * account the first one holds — a renumbering at the provider, or an
+             * address that has been reassigned to somebody else. Either way it
+             * is an administrator's decision, made by clearing the old subject,
+             * not something to infer from a claim.
+             */
+            if (filled($byEmail->oidc_subject) && $byEmail->oidc_subject !== $identity->subject) {
+                throw OidcException::because(
+                    'This console\'s account for that email address is already linked to a different identity-provider account. Ask an administrator to unlink it first.',
+                    'refused to relink account '.$byEmail->getKey().': subject changed',
+                );
+            }
+
+            /*
              * First single sign-on for an account that already existed — a local
              * account an administrator created, or one made before SSO was
              * switched on. Linking it is the point: it keeps the person's roles,
@@ -108,10 +124,9 @@ final class OidcUserProvisioner
              */
             $byEmail->oidc_subject = $identity->subject;
 
-            Log::info('OIDC linked an existing account', [
-                'user_id' => $byEmail->getKey(),
-                'email' => $byEmail->email,
-            ]);
+            // No email address: the account id identifies it, and the log is
+            // read by more people than the access screen is.
+            Log::info('OIDC linked an existing account', ['user_id' => $byEmail->getKey()]);
 
             return $this->refresh($byEmail, $identity);
         }
@@ -143,7 +158,6 @@ final class OidcUserProvisioner
 
         Log::info('OIDC provisioned a new account', [
             'user_id' => $user->getKey(),
-            'email' => $user->email,
             'groups' => $identity->groups,
         ]);
 

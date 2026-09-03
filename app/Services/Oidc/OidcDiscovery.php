@@ -7,6 +7,7 @@ namespace App\Services\Oidc;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * Reads an IdP's /.well-known/openid-configuration.
@@ -28,12 +29,31 @@ final class OidcDiscovery
     {
         $url = $this->documentUrl($issuerOrUrl);
 
+        /*
+         * The one URL in this flow that an administrator types before anything
+         * has been verified, and the server is the one that fetches it. HTTPS
+         * only, and never the link-local range — see OidcUrl.
+         */
+        if (! OidcUrl::isAllowed($url)) {
+            throw OidcException::because(OidcUrl::refusal('provider URL'));
+        }
+
         try {
-            $response = Http::timeout(10)->acceptJson()->get($url);
+            $response = Http::timeout(10)
+                ->acceptJson()
+                ->withOptions(OidcUrl::redirectOptions())
+                ->get($url);
         } catch (ConnectionException $exception) {
             throw OidcException::because(
                 'Could not reach '.$url.'.',
                 'discovery connection failed: '.$exception->getMessage(),
+            );
+        } catch (Throwable $exception) {
+            // Most likely a redirect this client refused to follow, which the
+            // HTTP client raises rather than returns.
+            throw OidcException::because(
+                'The provider redirected the request somewhere this console will not follow — an https:// URL is required the whole way.',
+                'discovery request rejected: '.$exception->getMessage(),
             );
         }
 
@@ -54,6 +74,21 @@ final class OidcDiscovery
             if (! is_string($document[$required] ?? null) || $document[$required] === '') {
                 throw OidcException::because(
                     'The discovery document at '.$url.' has no '.$required.', so it cannot be used.',
+                );
+            }
+        }
+
+        /*
+         * A provider that advertises cleartext endpoints is refused here rather
+         * than filled into the form for someone to save: the token endpoint
+         * carries the client secret.
+         */
+        foreach (['authorization_endpoint', 'token_endpoint', 'userinfo_endpoint', 'jwks_uri'] as $endpoint) {
+            $value = $document[$endpoint] ?? null;
+
+            if (is_string($value) && $value !== '' && ! OidcUrl::isAllowed($value)) {
+                throw OidcException::because(
+                    'The provider advertises '.$endpoint.' as '.$value.', which is not something this console will use. '.OidcUrl::refusal($endpoint),
                 );
             }
         }

@@ -8,6 +8,7 @@ use App\Models\OidcSettings;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * The authorisation-code half of the flow: where to send the browser, and what to
@@ -69,24 +70,45 @@ final class OidcClient
         string $verifier,
         string $nonce,
     ): array {
+        /*
+         * Checked again at the point of use, not only when it was saved: a row
+         * written before this rule existed, or edited straight in the database,
+         * must not be able to put the client secret on the wire in cleartext.
+         */
+        if (! OidcUrl::isAllowed($settings->token_endpoint)) {
+            throw OidcException::because(
+                'Single sign-on is configured with an insecure token endpoint, so this console will not use it.',
+                'refused a non-HTTPS token_endpoint',
+            );
+        }
+
         try {
             /*
              * The secret goes in the body rather than in a Basic header: both
              * are allowed, and client_secret_post is the one every IdP in this
              * family accepts without configuration.
              */
-            $response = Http::asForm()->timeout(15)->acceptJson()->post((string) $settings->token_endpoint, [
-                'grant_type' => 'authorization_code',
-                'code' => $code,
-                'redirect_uri' => $redirectUri,
-                'client_id' => (string) $settings->client_id,
-                'client_secret' => (string) $settings->client_secret,
-                'code_verifier' => $verifier,
-            ]);
+            $response = Http::asForm()
+                ->timeout(15)
+                ->acceptJson()
+                ->withOptions(OidcUrl::redirectOptions())
+                ->post((string) $settings->token_endpoint, [
+                    'grant_type' => 'authorization_code',
+                    'code' => $code,
+                    'redirect_uri' => $redirectUri,
+                    'client_id' => (string) $settings->client_id,
+                    'client_secret' => (string) $settings->client_secret,
+                    'code_verifier' => $verifier,
+                ]);
         } catch (ConnectionException $exception) {
             throw OidcException::because(
                 'Could not reach the identity provider to complete sign-in.',
                 'token endpoint unreachable: '.$exception->getMessage(),
+            );
+        } catch (Throwable $exception) {
+            throw OidcException::because(
+                'The identity provider redirected the token request somewhere this console will not follow.',
+                'token request rejected: '.$exception->getMessage(),
             );
         }
 
@@ -125,7 +147,9 @@ final class OidcClient
      */
     public function userinfo(OidcSettings $settings, string $accessToken): array
     {
-        if (! filled($settings->userinfo_endpoint)) {
+        // The access token is a bearer credential, so the same scheme rule
+        // applies as for the token endpoint.
+        if (! filled($settings->userinfo_endpoint) || ! OidcUrl::isAllowed($settings->userinfo_endpoint)) {
             return [];
         }
 
@@ -133,8 +157,9 @@ final class OidcClient
             $response = Http::withToken($accessToken)
                 ->timeout(15)
                 ->acceptJson()
+                ->withOptions(OidcUrl::redirectOptions())
                 ->get((string) $settings->userinfo_endpoint);
-        } catch (ConnectionException) {
+        } catch (Throwable) {
             return [];
         }
 

@@ -100,7 +100,9 @@ Setting it up:
    back to the browser — the screen shows whether one is set, not what it is.
 4. Ask for whatever scope releases group membership (`groups` for Authentik and
    Keycloak) and name the claim it arrives in. Dot notation works for a nested
-   claim, e.g. `resource_access.console.roles`.
+   claim, e.g. `resource_access.console.roles`. A provider that sends its groups
+   as one string must separate them with commas, so that a group called
+   `Domain Admins` stays one group.
 5. Map at least one provider group to a role, then switch it on. The API refuses to
    enable a configuration it cannot use, so the switch cannot be flipped on a
    half-filled form.
@@ -108,7 +110,9 @@ Setting it up:
 What it does with what the provider says:
 
 * **Identity is the `sub` claim**, once an account has one. Emails get reassigned;
-  subjects do not.
+  subjects do not. An account already linked to one subject is never relinked to
+  another on the strength of an email address — that is an administrator's call,
+  made by clearing the old subject.
 * **An existing account is only claimed on a verified email.** Otherwise an IdP
   that lets someone type an arbitrary address into a profile page would be a way to
   walk into an account that already exists. Linking keeps that account's roles,
@@ -131,19 +135,27 @@ What it will not do:
 
 * **Skip checking the ID token.** Authorisation code with PKCE (S256), and every
   token's signature verified against the provider's JWKS, plus issuer, audience,
-  `azp`, expiry and the nonce this browser sent. RSA signatures only; `alg: none`
-  and the symmetric algorithms are refused outright. A key set URL is therefore
-  required before SSO can be switched on.
+  `azp`, expiry, `nbf` and the nonce this browser sent. RSA signatures only;
+  `alg: none` and the symmetric algorithms are refused outright. A key set URL is
+  therefore required before SSO can be switched on.
+* **Talk to a provider in cleartext.** Every configured URL must be `https://`
+  (loopback excepted, for local development), and redirects are restricted to
+  HTTPS so a provider cannot bounce the token request — which carries the client
+  secret — onto plain HTTP. The rule is enforced when the configuration is saved
+  *and* again at the point of use, so a row edited straight in the database does
+  not get round it. `169.254.0.0/16` is refused outright.
 * **Replace password sign-in.** This console can push code to every production
   appserver; a way in that does not depend on a third party being up is worth
   keeping, and `php artisan mwdeploy:create-user` still works. Accounts *created*
   by SSO have no password at all — not one nobody knows — and password sign-in for
   them is refused outright rather than resting on a hash comparison against an
   empty column.
-* **Satisfy the TOTP requirement.** Enforced two-factor still applies to any
-  account that can change production, whatever the IdP did at its end. Section
+* **Satisfy the TOTP requirement.** An account with TOTP enrolled is sent to the
+  same two-factor challenge a password sign-in would reach, and produces a code
+  before it holds a session; an account that must enrol still has to. Section
   3.5.1 is about this console's blast radius, not about how well you were
-  authenticated somewhere else.
+  authenticated somewhere else — if SSO could establish the session on its own,
+  leaked IdP credentials would be enough to deploy.
 
 ## What is new relative to `mwdeploy`
 

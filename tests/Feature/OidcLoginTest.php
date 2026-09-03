@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\OidcRoleMapping;
+use App\Models\OidcSettings;
 use App\Models\Role;
 use App\Models\User;
 use App\Support\Permissions;
@@ -13,7 +14,9 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
+use Laravel\Fortify\Contracts\TwoFactorAuthenticationProvider;
 use PHPUnit\Framework\Attributes\Test;
+use PragmaRX\Google2FA\Google2FA;
 use Tests\Support\FakeIdentityProvider;
 use Tests\TestCase;
 
@@ -231,6 +234,32 @@ final class OidcLoginTest extends TestCase
     }
 
     #[Test]
+    public function a_group_name_containing_spaces_stays_one_group(): void
+    {
+        /*
+         * A provider that sends its groups as one string sends them comma
+         * separated. Splitting on whitespace would turn `Domain Admins` into
+         * `Domain` and `Admins`, either of which could then match a mapping that
+         * was never meant for it.
+         */
+        $this->idp->configure();
+
+        $admins = Role::factory()->create(['name' => 'ops']);
+        $unrelated = Role::factory()->create(['name' => 'domain']);
+
+        OidcRoleMapping::create(['group' => 'Domain Admins', 'role_id' => $admins->getKey()]);
+        OidcRoleMapping::create(['group' => 'Domain', 'role_id' => $unrelated->getKey()]);
+
+        $this->signIn([
+            'email' => 'spaces@wikioasis.org',
+            'email_verified' => true,
+            'groups' => 'Domain Admins',
+        ]);
+
+        $this->assertSame(['ops'], User::query()->sole()->roles->pluck('name')->all());
+    }
+
+    #[Test]
     public function a_second_sign_in_reuses_the_account_the_subject_already_owns(): void
     {
         $this->idp->configure();
@@ -250,7 +279,9 @@ final class OidcLoginTest extends TestCase
     {
         $this->idp->configure();
 
-        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE]);
+        // No TOTP: this test is about the linking, and an enrolled account stops
+        // at the two-factor challenge instead — see the group of tests below.
+        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
 
         $this->signIn(['sub' => 'subject-11', 'email' => $existing->email, 'email_verified' => true]);
 
@@ -261,6 +292,88 @@ final class OidcLoginTest extends TestCase
         // Nothing was mapped, so the account keeps the roles it had.
         $this->assertTrue($existing->fresh()->hasPermission(Permissions::DEPLOY_CORE));
         $this->assertSame(1, User::query()->count());
+    }
+
+    #[Test]
+    public function an_account_with_totp_enrolled_must_still_produce_a_code(): void
+    {
+        /*
+         * The requirement is about what this console can do to production, not
+         * about how convincingly someone authenticated somewhere else. If single
+         * sign-on could establish the session on its own, leaked IdP credentials
+         * would be enough to deploy — skipping the second factor the account's
+         * owner had deliberately enrolled.
+         */
+        $this->idp->configure();
+
+        $enrolled = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $enrolled->forceFill([
+            'two_factor_secret' => encrypt($this->totpSecret()),
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+
+        $this->signIn(['sub' => 'subject-2fa', 'email' => $enrolled->email, 'email_verified' => true])
+            ->assertRedirect(route('two-factor.login'));
+
+        $this->assertGuest();
+        // The account is linked either way — it is the session that waits.
+        $this->assertSame('subject-2fa', $enrolled->fresh()->oidc_subject);
+        $this->assertSame($enrolled->getKey(), session('login.id'));
+    }
+
+    #[Test]
+    public function the_code_completes_the_single_sign_on_and_signs_them_in(): void
+    {
+        $this->idp->configure();
+
+        $secret = $this->totpSecret();
+        $enrolled = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $enrolled->forceFill([
+            'two_factor_secret' => encrypt($secret),
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+
+        $this->signIn(['sub' => 'subject-2fa', 'email' => $enrolled->email, 'email_verified' => true]);
+
+        $this->post(route('two-factor.login'), ['code' => $this->totpCode($secret)]);
+
+        $this->assertAuthenticatedAs($enrolled->fresh());
+    }
+
+    #[Test]
+    public function a_wrong_code_leaves_the_session_unauthenticated(): void
+    {
+        $this->idp->configure();
+
+        $enrolled = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $enrolled->forceFill([
+            'two_factor_secret' => encrypt($this->totpSecret()),
+            'two_factor_confirmed_at' => now(),
+        ])->save();
+
+        $this->signIn(['sub' => 'subject-2fa', 'email' => $enrolled->email, 'email_verified' => true]);
+
+        $this->post(route('two-factor.login'), ['code' => '000000']);
+
+        $this->assertGuest();
+    }
+
+    #[Test]
+    public function an_account_already_linked_to_another_identity_is_not_relinked(): void
+    {
+        // The IdP asserting that a second identity owns an account the first one
+        // holds is an administrator's problem, not a claim to act on.
+        $this->idp->configure();
+
+        $existing = $this->userWithPermissions([Permissions::DEPLOY_CORE], twoFactor: false);
+        $existing->forceFill(['oidc_subject' => 'the-original-subject'])->save();
+
+        $this->signIn(['sub' => 'a-different-subject', 'email' => $existing->email, 'email_verified' => true])
+            ->assertRedirect(route('login'))
+            ->assertSessionHasErrors('oidc');
+
+        $this->assertGuest();
+        $this->assertSame('the-original-subject', $existing->fresh()->oidc_subject);
     }
 
     #[Test]
@@ -398,6 +511,37 @@ final class OidcLoginTest extends TestCase
     }
 
     #[Test]
+    public function a_cleartext_key_set_url_is_refused_at_sign_in_too(): void
+    {
+        /*
+         * The settings screen will not save one, but a row written before that
+         * rule existed — or edited straight in the database — must not be able
+         * to get signing keys over a connection anyone could tamper with.
+         */
+        $this->idp->configure();
+        OidcSettings::query()->update(['jwks_uri' => 'http://sso.example.test/jwks']);
+
+        $this->signIn(['email' => 'insecure-jwks@wikioasis.org', 'email_verified' => true])
+            ->assertSessionHasErrors('oidc');
+
+        $this->assertGuest();
+    }
+
+    #[Test]
+    public function a_cleartext_token_endpoint_is_refused_at_sign_in_too(): void
+    {
+        $this->idp->configure();
+        OidcSettings::query()->update(['token_endpoint' => 'http://sso.example.test/token']);
+
+        $this->signIn(['email' => 'insecure-token@wikioasis.org', 'email_verified' => true])
+            ->assertSessionHasErrors('oidc');
+
+        $this->assertGuest();
+        // The client secret never left the box.
+        Http::assertNotSent(fn ($request) => str_starts_with($request->url(), 'http://'));
+    }
+
+    #[Test]
     public function a_token_from_another_issuer_is_refused(): void
     {
         $this->idp->configure();
@@ -429,6 +573,17 @@ final class OidcLoginTest extends TestCase
             'azp' => 'another-client',
             'email' => 'a@wikioasis.org',
         ])->assertSessionHasErrors('oidc');
+
+        $this->assertGuest();
+    }
+
+    #[Test]
+    public function a_token_that_is_not_valid_yet_is_refused(): void
+    {
+        $this->idp->configure();
+
+        $this->signIn(['nbf' => time() + 3600, 'email' => 'early@wikioasis.org'])
+            ->assertSessionHasErrors('oidc');
 
         $this->assertGuest();
     }
@@ -540,8 +695,16 @@ final class OidcLoginTest extends TestCase
         $this->signIn(['sub' => 'no-password', 'email' => 'sso-only@wikioasis.org', 'email_verified' => true]);
         $this->post(route('logout'));
 
-        $this->post(route('login.store'), ['email' => 'sso-only@wikioasis.org', 'password' => ''])
-            ->assertSessionHasErrors();
+        /*
+         * A real password, not an empty one: `password` is a required field, so
+         * an empty string fails validation before the authentication callback
+         * runs — and the test would then pass even with the passwordless refusal
+         * taken out.
+         */
+        $this->post(route('login.store'), [
+            'email' => 'sso-only@wikioasis.org',
+            'password' => 'a-password-this-account-does-not-have',
+        ])->assertSessionHasErrors('email');
 
         $this->assertGuest();
     }
@@ -592,6 +755,18 @@ final class OidcLoginTest extends TestCase
         );
 
         return $this->get(route('oidc.callback', ['code' => 'an-authorisation-code', 'state' => $query['state']]));
+    }
+
+    /** A real TOTP secret, so the challenge can actually be completed. */
+    private function totpSecret(): string
+    {
+        return app(TwoFactorAuthenticationProvider::class)->generateSecretKey();
+    }
+
+    /** The code an authenticator app would be showing for that secret right now. */
+    private function totpCode(string $secret): string
+    {
+        return app(Google2FA::class)->getCurrentOtp($secret);
     }
 
     /** Start the flow and return the state it put in the session. */

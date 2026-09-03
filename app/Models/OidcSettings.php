@@ -37,6 +37,7 @@ final class OidcSettings extends Model
      * @var array<string, mixed>
      */
     protected $attributes = [
+        'singleton' => true,
         'enabled' => false,
         'label' => 'single sign-on',
         'scopes' => 'openid profile email groups',
@@ -65,6 +66,12 @@ final class OidcSettings extends Model
     /**
      * The one row, or an unsaved instance carrying the defaults.
      *
+     * Addressed by the `singleton` column rather than by "whichever row comes
+     * back first", so what sign-in reads is what the settings screen wrote. That
+     * column is uniquely indexed, so a save cannot add a second row even if two
+     * administrators press Save at the same moment — the second fails loudly
+     * instead of creating a rival configuration.
+     *
      * Deliberately does not create anything: this is read while rendering the
      * sign-in page, and a GET of a login form is no place for a write. The
      * settings screen is what saves the row.
@@ -75,7 +82,7 @@ final class OidcSettings extends Model
      */
     public static function current(): self
     {
-        return self::query()->firstOrNew([]);
+        return self::query()->firstOrNew(['singleton' => true]);
     }
 
     /**

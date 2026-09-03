@@ -11,6 +11,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Oidc\OidcDiscovery;
 use App\Services\Oidc\OidcException;
+use App\Services\Oidc\OidcUrl;
 use App\Support\Permissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -51,12 +52,24 @@ final class OidcSettingsController extends Controller
     {
         $this->authorize(Permissions::SETTINGS_MANAGE);
 
+        /*
+         * Every URL here is fetched by the *server*, and two of them carry
+         * credentials — so HTTPS is a validation rule, not advice. OidcUrl
+         * carries the rule; the services apply it again at the point of use, so
+         * a row edited straight in the database cannot get round it.
+         */
+        $secureUrl = static function (string $attribute, $value, $fail): void {
+            if ($value !== null && $value !== '' && ! OidcUrl::isAllowed((string) $value)) {
+                $fail(OidcUrl::refusal(str_replace('_', ' ', $attribute)));
+            }
+        };
+
         $validated = $request->validate([
             'enabled' => ['required', 'boolean'],
             'label' => ['required', 'string', 'max:80'],
 
-            'discovery_url' => ['nullable', 'string', 'max:500', 'url'],
-            'issuer' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url'],
+            'discovery_url' => ['nullable', 'string', 'max:500', 'url', $secureUrl],
+            'issuer' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url', $secureUrl],
 
             'client_id' => ['required_if:enabled,true', 'nullable', 'string', 'max:255'],
             /*
@@ -66,13 +79,13 @@ final class OidcSettingsController extends Controller
              */
             'client_secret' => ['sometimes', 'nullable', 'string', 'max:500'],
 
-            'authorization_endpoint' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url'],
-            'token_endpoint' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url'],
-            'userinfo_endpoint' => ['nullable', 'string', 'max:500', 'url'],
+            'authorization_endpoint' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url', $secureUrl],
+            'token_endpoint' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url', $secureUrl],
+            'userinfo_endpoint' => ['nullable', 'string', 'max:500', 'url', $secureUrl],
             // Required when enabled: without a key set there is no way to check
             // an ID token's signature, and this flow refuses to skip that.
-            'jwks_uri' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url'],
-            'end_session_endpoint' => ['nullable', 'string', 'max:500', 'url'],
+            'jwks_uri' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url', $secureUrl],
+            'end_session_endpoint' => ['nullable', 'string', 'max:500', 'url', $secureUrl],
 
             'scopes' => ['required', 'string', 'max:255'],
             'groups_claim' => ['required', 'string', 'max:120'],
@@ -165,7 +178,14 @@ final class OidcSettingsController extends Controller
         $this->authorize(Permissions::SETTINGS_MANAGE);
 
         $validated = $request->validate([
-            'discovery_url' => ['required', 'string', 'max:500', 'url'],
+            'discovery_url' => [
+                'required', 'string', 'max:500', 'url',
+                static function (string $attribute, $value, $fail): void {
+                    if (! OidcUrl::isAllowed((string) $value)) {
+                        $fail(OidcUrl::refusal('provider URL'));
+                    }
+                },
+            ],
         ]);
 
         try {

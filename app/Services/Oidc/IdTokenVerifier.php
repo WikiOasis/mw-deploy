@@ -157,6 +157,20 @@ final class IdTokenVerifier
             );
         }
 
+        /*
+         * `nbf` is optional in an ID token, but when a provider sends one it
+         * means the token is not valid yet — so accepting it early would accept
+         * a token the provider itself does not consider live.
+         */
+        $notBefore = $claims['nbf'] ?? null;
+
+        if ($notBefore !== null && (! is_numeric($notBefore) || (int) $notBefore - self::LEEWAY > time())) {
+            throw OidcException::because(
+                'The sign-in token is not valid yet. Try signing in again.',
+                'id_token nbf is in the future or unreadable',
+            );
+        }
+
         $issuedAt = $claims['iat'] ?? null;
 
         if (! is_numeric($issuedAt) || (int) $issuedAt - self::LEEWAY > time()) {

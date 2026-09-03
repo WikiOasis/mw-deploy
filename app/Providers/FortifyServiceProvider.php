@@ -10,7 +10,7 @@ use App\Models\OidcSettings;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -65,11 +65,29 @@ class FortifyServiceProvider extends ServiceProvider
 
             $user = User::query()->where($field, $identifier)->first();
 
+            /*
+             * The one addition to Fortify's own check. Everything else is
+             * delegated to the guard's user provider rather than reimplemented,
+             * so credential verification and the rehash-on-login behaviour stay
+             * whatever the framework does — including honouring
+             * `hashing.rehash_on_login` when the work factor is raised.
+             */
             if (! $user instanceof User || ! filled($user->password)) {
                 return null;
             }
 
-            return Hash::check((string) $request->input('password'), (string) $user->password) ? $user : null;
+            $provider = Auth::guard(config('fortify.guard'))->getProvider();
+            $credentials = ['password' => (string) $request->input('password')];
+
+            if (! $provider->validateCredentials($user, $credentials)) {
+                return null;
+            }
+
+            if (config('hashing.rehash_on_login', true) && method_exists($provider, 'rehashPasswordIfRequired')) {
+                $provider->rehashPasswordIfRequired($user, $credentials);
+            }
+
+            return $user;
         });
 
         /*
