@@ -173,6 +173,13 @@ const saveRole = async () => {
                                 <td class="px-5 py-2">
                                     <p class="font-medium">{{ user.name }}</p>
                                     <p class="text-xs text-fg-subtle">{{ user.email }}</p>
+                                    <!-- An account whose roles come from an IdP
+                                         group is one whose roles come back after
+                                         being edited here. Better seen than
+                                         discovered. -->
+                                    <p v-if="user.single_sign_on" class="mt-0.5 text-2xs text-fg-faint">
+                                        signs in with single sign-on{{ user.password_set ? ' and a password' : '' }}
+                                    </p>
                                 </td>
                                 <td class="px-5 py-2">
                                     <span v-if="user.two_factor_enabled" class="text-xs text-success-text">enrolled</span>

@@ -162,6 +162,16 @@ const needsTwoFactor = computed(
                                 Users and access
                             </RouterLink>
 
+                            <RouterLink
+                                v-if="can('manage_settings')"
+                                to="/settings/authentication"
+                                role="menuitem"
+                                class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-fg-muted hover:bg-sunken hover:text-fg"
+                            >
+                                <AppIcon name="shield" class="size-4 shrink-0" />
+                                Sign-in and single sign-on
+                            </RouterLink>
+
                             <div class="my-1 border-t border-line" />
 
                             <!-- Sign-out is a real form post: Fortify owns the

@@ -6,6 +6,7 @@ use App\Apps\AppRegistry;
 use App\Apps\ConsoleApp;
 use App\Http\Controllers\Api\AppController;
 use App\Http\Controllers\Api\BootstrapController;
+use App\Http\Controllers\Api\OidcSettingsController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +44,15 @@ Route::put('users/{user}', [UserController::class, 'update'])->name('api.users.u
 
 Route::post('roles', [RoleController::class, 'store'])->name('api.roles.store');
 Route::put('roles/{role}', [RoleController::class, 'update'])->name('api.roles.update');
+
+/*
+ * How people sign in: the OIDC provider's endpoints, its client credentials and
+ * which of its groups grant which roles. Console configuration rather than an
+ * app's, behind its own permission — see Permissions::SETTINGS_MANAGE.
+ */
+Route::get('settings/oidc', [OidcSettingsController::class, 'show'])->name('api.settings.oidc.show');
+Route::put('settings/oidc', [OidcSettingsController::class, 'update'])->name('api.settings.oidc.update');
+Route::post('settings/oidc/discover', [OidcSettingsController::class, 'discover'])->name('api.settings.oidc.discover');
 
 /*
  * The apps.

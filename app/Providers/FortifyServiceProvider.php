@@ -6,8 +6,11 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Actions\Fortify\UpdateUserPassword;
 use App\Actions\Fortify\UpdateUserProfileInformation;
+use App\Models\OidcSettings;
+use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -45,7 +48,46 @@ class FortifyServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->session()->get('login.id'));
         });
 
-        Fortify::loginView(fn () => view('auth.login'));
+        /*
+         * Password sign-in, with one addition to Fortify's default: an account
+         * provisioned by single sign-on has no password at all, and no password
+         * is not a password to check credentials against. Refusing outright is
+         * clearer than trusting a hash comparison against an empty column, and
+         * it means a provisioned account cannot be entered by guessing.
+         */
+        Fortify::authenticateUsing(function (Request $request): ?User {
+            $field = Fortify::username();
+            $identifier = (string) $request->input($field);
+
+            if (config('fortify.lowercase_usernames')) {
+                $identifier = Str::lower($identifier);
+            }
+
+            $user = User::query()->where($field, $identifier)->first();
+
+            if (! $user instanceof User || ! filled($user->password)) {
+                return null;
+            }
+
+            return Hash::check((string) $request->input('password'), (string) $user->password) ? $user : null;
+        });
+
+        /*
+         * The sign-in page needs to know whether to offer the single sign-on
+         * button, and what to call it. Read per request rather than cached: it
+         * changes from the settings screen, and a stale button that points at a
+         * provider this console no longer trusts is worse than a query.
+         */
+        Fortify::loginView(fn () => view('auth.login', [
+            /*
+             * `rescue`, because this runs on the one page an operator needs
+             * during an upgrade: between deploying the code and running the
+             * migration the table does not exist yet, and a sign-in page that
+             * 500s in that window is a bad way to find out. No row means no
+             * button, which is the correct answer anyway.
+             */
+            'oidc' => rescue(fn (): OidcSettings => OidcSettings::current(), new OidcSettings, report: false),
+        ]));
         Fortify::twoFactorChallengeView(fn () => view('auth.two-factor-challenge'));
         Fortify::requestPasswordResetLinkView(fn () => view('auth.forgot-password'));
         Fortify::resetPasswordView(fn (Request $request) => view('auth.reset-password', ['request' => $request]));

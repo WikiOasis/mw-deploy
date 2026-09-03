@@ -34,6 +34,10 @@ having loaded is an ops tool you cannot get into on the day the bundle is what
 broke. Everything behind sign-in is the SPA: one shell view containing nothing but
 a mount point, and no page loads after it.
 
+Single sign-on against a third-party OpenID Connect provider sits beside those
+flows — see [Single sign-on](#single-sign-on) — and deliberately does not replace
+them.
+
 ## Apps
 
 The console is a shell around a set of apps. An app is a submodule with a boundary
@@ -54,6 +58,7 @@ around it:
 ```
 /                       the launcher — the apps this account may open
 /access                 accounts, roles, and which app permissions each role grants
+/settings/authentication  the single sign-on provider, and its group→role mapping
 /deployments            the deployments app (overview, history, wizard, registry…)
 ```
 
@@ -67,6 +72,78 @@ Access is granted centrally, on `/access`: accounts hold roles, roles hold
 permissions, and ticking an app's access permission is what puts its tile on its
 members' launcher. After adding an app, re-run `php artisan db:seed --force` —
 that is how new permissions reach the existing roles.
+
+## Single sign-on
+
+Accounts can sign in through a third-party OpenID Connect provider — Authentik,
+Keycloak, Entra, Okta, anything that publishes a discovery document — with the
+provider's groups deciding which console roles they hold.
+
+**The configuration lives in the database, not in `.env`.** It is edited at
+`/settings/authentication`, behind its own permission (`settings.manage`), because
+rotating a client secret, following the IdP to a new hostname or adding a group is
+ordinary access administration: it should not need a shell on the appserver, an
+editor and a php-fpm reload. `settings.manage` is the sharpest grant in the
+console — whoever holds it decides which identity provider this console believes
+about who you are — so it is not folded into `users.manage` or `roles.manage`, and
+only `ops` gets it from the seeder.
+
+Setting it up:
+
+1. Register a client at the provider, redirect URI `https://<console>/auth/oidc/callback`.
+   The screen prints the exact URI to paste; getting it wrong is failure mode one.
+2. Paste the issuer (or the full `/.well-known/openid-configuration` URL) and press
+   **Read configuration**. The endpoints are filled in but not saved, so an IdP
+   behind split-horizon DNS advertising endpoints this host cannot reach is
+   something you see before sign-in depends on it.
+3. Add the client id and secret. The secret is encrypted at rest and never sent
+   back to the browser — the screen shows whether one is set, not what it is.
+4. Ask for whatever scope releases group membership (`groups` for Authentik and
+   Keycloak) and name the claim it arrives in. Dot notation works for a nested
+   claim, e.g. `resource_access.console.roles`.
+5. Map at least one provider group to a role, then switch it on. The API refuses to
+   enable a configuration it cannot use, so the switch cannot be flipped on a
+   half-filled form.
+
+What it does with what the provider says:
+
+* **Identity is the `sub` claim**, once an account has one. Emails get reassigned;
+  subjects do not.
+* **An existing account is only claimed on a verified email.** Otherwise an IdP
+  that lets someone type an arbitrary address into a profile page would be a way to
+  walk into an account that already exists. Linking keeps that account's roles,
+  its TOTP enrolment and its deployment history.
+* **Groups map to roles, never to permissions.** A group lands someone in the same
+  bucket an administrator would have put them in by hand, so `/access` keeps
+  telling the whole truth about what an account can do.
+* **Re-apply the mapping on every sign-in** (the default) makes the IdP the source
+  of truth: removing someone from a group there removes the role here. While the
+  mapping table is empty, single sign-on never changes anybody's roles — switching
+  it on before writing the mapping cannot lock the console's own administrators
+  out of it.
+* **Create an account on first sign-in** is optional. Off means only people who
+  already have an account here can use SSO.
+* **Restrict sign-in to these groups** is an optional allow-list. Empty means anyone
+  the provider authenticates may sign in, holding whatever their groups map to —
+  possibly nothing, i.e. an account that sees an empty launcher.
+
+What it will not do:
+
+* **Skip checking the ID token.** Authorisation code with PKCE (S256), and every
+  token's signature verified against the provider's JWKS, plus issuer, audience,
+  `azp`, expiry and the nonce this browser sent. RSA signatures only; `alg: none`
+  and the symmetric algorithms are refused outright. A key set URL is therefore
+  required before SSO can be switched on.
+* **Replace password sign-in.** This console can push code to every production
+  appserver; a way in that does not depend on a third party being up is worth
+  keeping, and `php artisan mwdeploy:create-user` still works. Accounts *created*
+  by SSO have no password at all — not one nobody knows — and password sign-in for
+  them is refused outright rather than resting on a hash comparison against an
+  empty column.
+* **Satisfy the TOTP requirement.** Enforced two-factor still applies to any
+  account that can change production, whatever the IdP did at its end. Section
+  3.5.1 is about this console's blast radius, not about how well you were
+  authenticated somewhere else.
 
 ## What is new relative to `mwdeploy`
 
@@ -242,18 +319,19 @@ app/
   Services/Deployment/     the orchestrator — runner, rollout pool, decision gate
   Services/Discovery/      tree scan → import plan; reads the farm, writes nothing
   Services/Git/            branch/commit discovery (salt | local | none)
+  Services/Oidc/           single sign-on: discovery, JWKS, ID token checks, provisioning
   Services/Salt/           the only code that touches the fleet
   Support/                 DeploymentOptions, PathResolver, Permissions
 resources/js/
   app.js, router.js        the SPA entry point; console routes + each app's
   api.js, store.js, live.js  fetch wrapper, session/app/flash state, Echo + polling
   components/              the shared component library: panels, fields, combobox
-  console/                 the chrome, the launcher, the access screen
+  console/                 the chrome, the launcher, the access and sign-in screens
   apps/index.js            the client-side app registry, mirroring config/console.php
   apps/deployments/        that app's manifest, screens and own components
   auth.js                  a few kB for the server-rendered sign-in pages
 routes/
-  web.php                  the SPA shell and TOTP enrolment
+  web.php                  the SPA shell, TOTP enrolment and the OIDC redirect/callback
   api.php                  the console's API, plus one guarded group per app
   apps/deployments.php     the deployments app's own endpoints
 shim/
