@@ -20,9 +20,10 @@ use Illuminate\Database\Eloquent\Model;
  * button on the settings screen, not something sign-in depends on being up.
  */
 #[Fillable([
-    'enabled', 'label', 'discovery_url', 'issuer', 'client_id', 'client_secret',
-    'authorization_endpoint', 'token_endpoint', 'userinfo_endpoint', 'jwks_uri',
-    'end_session_endpoint', 'scopes', 'groups_claim', 'create_users', 'sync_roles',
+    'enabled', 'label', 'password_login_enabled', 'discovery_url', 'issuer',
+    'client_id', 'client_secret', 'authorization_endpoint', 'token_endpoint',
+    'userinfo_endpoint', 'jwks_uri', 'end_session_endpoint', 'scopes',
+    'groups_claim', 'trust_provider_email', 'create_users', 'sync_roles',
     'allowed_groups', 'discovered_at',
 ])]
 #[Hidden(['client_secret'])]
@@ -40,8 +41,10 @@ final class OidcSettings extends Model
         'singleton' => true,
         'enabled' => false,
         'label' => 'single sign-on',
+        'password_login_enabled' => true,
         'scopes' => 'openid profile email groups',
         'groups_claim' => 'groups',
+        'trust_provider_email' => true,
         'create_users' => true,
         'sync_roles' => true,
     ];
@@ -53,6 +56,8 @@ final class OidcSettings extends Model
     {
         return [
             'enabled' => 'boolean',
+            'password_login_enabled' => 'boolean',
+            'trust_provider_email' => 'boolean',
             'create_users' => 'boolean',
             'sync_roles' => 'boolean',
             'allowed_groups' => 'array',
@@ -111,6 +116,49 @@ final class OidcSettings extends Model
         $scopes = preg_split('/[\s,]+/', (string) $this->scopes, flags: PREG_SPLIT_NO_EMPTY) ?: [];
 
         return array_values(array_unique(['openid', ...$scopes]));
+    }
+
+    /**
+     * Whether the sign-in page still accepts a password.
+     *
+     * Three ways it stays available, and they are all deliberate:
+     *
+     *  * it has not been switched off;
+     *  * single sign-on is not currently usable — switched off, or its
+     *    configuration left incomplete — because the alternative is a console
+     *    with no way in at all;
+     *  * the break-glass override is set in the environment, which is how someone
+     *    with a shell on the box gets back in on the day the IdP is what broke,
+     *    without needing database access to undo a checkbox.
+     *
+     * The last two are the point. This is a tool that deploys to production: the
+     * setting is allowed to make password sign-in *unavailable*, never to make
+     * the console unreachable.
+     */
+    public function passwordLoginAllowed(): bool
+    {
+        if (config('console.force_password_login') === true) {
+            return true;
+        }
+
+        if (! $this->isUsable()) {
+            return true;
+        }
+
+        return (bool) $this->password_login_enabled;
+    }
+
+    /**
+     * Whether an address the provider stated without an `email_verified` claim
+     * may be treated as verified.
+     *
+     * Only ever consulted for a *missing* claim. An explicit
+     * `email_verified: false` is the provider saying it does not vouch for the
+     * address, and that is refused regardless — see OidcUserProvisioner.
+     */
+    public function trustsProviderEmail(): bool
+    {
+        return (bool) $this->trust_provider_email;
     }
 
     /**

@@ -49,6 +49,8 @@ final class OidcSettingsTest extends TestCase
             'jwks_uri' => 'https://sso.example.test/application/o/console/jwks/',
             'scopes' => 'openid profile email groups',
             'groups_claim' => 'groups',
+            'trust_provider_email' => true,
+            'password_login_enabled' => true,
             'create_users' => true,
             'sync_roles' => true,
             ...$overrides,
@@ -165,8 +167,10 @@ final class OidcSettingsTest extends TestCase
             ->putJson(route('api.settings.oidc.update'), [
                 'enabled' => false,
                 'label' => 'Example SSO',
+                'password_login_enabled' => true,
                 'scopes' => 'openid profile email groups',
                 'groups_claim' => 'groups',
+                'trust_provider_email' => true,
                 'create_users' => true,
                 'sync_roles' => true,
             ])

@@ -73,6 +73,18 @@ const redirectUri = computed(() => data.value?.redirect_uri ?? '');
 
 const linkedAccounts = computed(() => data.value?.linked_accounts ?? 0);
 
+const passwordAccounts = computed(() => data.value?.password_accounts ?? 0);
+
+/**
+ * What the server says is actually true, as against what the checkbox says. They
+ * differ when single sign-on is unusable or the environment override is set, and
+ * an administrator looking at a password box the setting claims to have removed
+ * deserves to be told which it is.
+ */
+const passwordLoginEffective = computed(() => data.value?.password_login_effective === true);
+
+const passwordLoginForced = computed(() => data.value?.password_login_forced === true);
+
 const scopeList = computed(() =>
     (form.value?.scopes ?? '')
         .split(/[\s,]+/)
@@ -215,6 +227,52 @@ const save = async () => {
                         </label>
 
                         <p v-if="errors.enabled" class="text-xs text-danger-text">{{ errors.enabled[0] }}</p>
+
+                        <label class="flex items-start gap-2.5">
+                            <input
+                                v-model="form.password_login_enabled"
+                                type="checkbox"
+                                class="mt-0.5 size-4 rounded border-line-strong"
+                            />
+                            <span>
+                                <span class="text-sm font-medium">Also allow signing in with a password</span>
+                                <span class="block text-xs text-fg-subtle">
+                                    Off means {{ form.label || 'the provider' }} is the only way in. It can only be
+                                    switched off while single sign-on is on and working, it switches itself back on
+                                    if single sign-on is ever disabled, and
+                                    <span class="font-mono">CONSOLE_FORCE_PASSWORD_LOGIN=true</span> in the
+                                    environment brings it back on the day the provider is what broke.
+                                </span>
+                            </span>
+                        </label>
+
+                        <p v-if="errors.password_login_enabled" class="text-xs text-danger-text">
+                            {{ errors.password_login_enabled[0] }}
+                        </p>
+
+                        <p
+                            v-if="!form.password_login_enabled && passwordLoginEffective"
+                            class="rounded-md border border-warning-line bg-warning-surface px-3 py-2 text-xs text-pretty text-warning-text"
+                        >
+                            <template v-if="passwordLoginForced">
+                                The password form is still being shown, because
+                                <span class="font-mono">CONSOLE_FORCE_PASSWORD_LOGIN</span> is set in this
+                                install's environment. Unset it to have this take effect.
+                            </template>
+                            <template v-else>
+                                The password form is still being shown, because single sign-on is not currently
+                                usable. It will disappear once single sign-on is on and configured.
+                            </template>
+                        </p>
+
+                        <p
+                            v-else-if="!form.password_login_enabled"
+                            class="rounded-md border border-warning-line bg-warning-surface px-3 py-2 text-xs text-pretty text-warning-text"
+                        >
+                            {{ passwordAccounts }} account{{ passwordAccounts === 1 ? '' : 's' }} can currently
+                            sign in with a password. Make sure you can sign in with {{ form.label || 'the provider' }}
+                            before relying on this.
+                        </p>
 
                         <FormField
                             v-slot="field"
@@ -425,6 +483,26 @@ const save = async () => {
                             </span>
                         </label>
 
+                        <label class="flex items-start gap-2.5">
+                            <input
+                                v-model="form.trust_provider_email"
+                                type="checkbox"
+                                class="mt-0.5 size-4 rounded border-line-strong"
+                            />
+                            <span>
+                                <span class="text-sm font-medium">
+                                    Trust email addresses the provider does not mark as verified
+                                </span>
+                                <span class="block text-xs text-fg-subtle">
+                                    The <span class="font-mono">email_verified</span> claim is optional, and several
+                                    providers — Authentik among them — do not send it at all. Without this, an
+                                    account that already exists here can never be linked, because the address can
+                                    never be shown to be verified. A provider that explicitly says
+                                    <span class="font-mono">email_verified: false</span> is refused either way.
+                                </span>
+                            </span>
+                        </label>
+
                         <FormField
                             v-slot="field"
                             label="Restrict sign-in to these groups"
@@ -439,8 +517,9 @@ const save = async () => {
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <p class="text-xs text-fg-subtle">
                         {{ linkedAccounts }} account{{ linkedAccounts === 1 ? '' : 's' }} currently sign in this
-                        way. Accounts created by single sign-on have no password, and enforced TOTP still applies
-                        to anything that can change production.
+                        way. They have no password, so the provider is their only gate — enforce MFA there,
+                        because this console does not ask those accounts to enrol TOTP. An account that keeps a
+                        password alongside single sign-on still has to.
                     </p>
 
                     <div class="flex gap-2">

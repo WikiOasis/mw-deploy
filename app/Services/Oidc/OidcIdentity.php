@@ -23,7 +23,19 @@ final class OidcIdentity
     private function __construct(
         public readonly string $subject,
         public readonly string $email,
+        /**
+         * Whether the address may be treated as verified — which is not the same
+         * question as what the provider said. See `$emailVerifiedStated`.
+         */
         public readonly bool $emailVerified,
+        /**
+         * What the provider actually said, in three states: true, false, or null
+         * for a provider that sent no `email_verified` claim at all. The claim is
+         * optional in the spec and plenty of providers omit it, so the difference
+         * between "said no" and "said nothing" decides both what is allowed and
+         * what the person signing in is told.
+         */
+        public readonly ?bool $emailVerifiedStated,
         public readonly string $name,
         public readonly array $groups,
     ) {}
@@ -34,14 +46,46 @@ final class OidcIdentity
     public static function fromClaims(array $claims, OidcSettings $settings): self
     {
         $email = (string) (Arr::get($claims, 'email') ?? '');
+        $stated = self::readEmailVerified($claims);
 
         return new self(
             subject: (string) Arr::get($claims, 'sub'),
             email: mb_strtolower(trim($email)),
-            emailVerified: filter_var(Arr::get($claims, 'email_verified'), FILTER_VALIDATE_BOOLEAN),
+            /*
+             * A provider that says nothing is governed by this install's setting;
+             * one that says `false` is refused whatever the setting is, because
+             * that is the provider telling us it does not vouch for the address.
+             */
+            emailVerified: $stated ?? $settings->trustsProviderEmail(),
+            emailVerifiedStated: $stated,
             name: self::readName($claims, $email),
             groups: self::readGroups($claims, (string) $settings->groups_claim),
         );
+    }
+
+    /**
+     * The `email_verified` claim, as the three states it really has.
+     *
+     * Providers are loose with the type: a JSON boolean, the strings "true" and
+     * "false", and 1/0 are all seen in the wild. Absent is the state that matters
+     * most, and it must not be confused with false — which is what
+     * `filter_var(..., FILTER_VALIDATE_BOOLEAN)` on a missing key does.
+     *
+     * @param  array<string, mixed>  $claims
+     */
+    private static function readEmailVerified(array $claims): ?bool
+    {
+        if (! Arr::has($claims, 'email_verified')) {
+            return null;
+        }
+
+        $value = Arr::get($claims, 'email_verified');
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false;
     }
 
     /**

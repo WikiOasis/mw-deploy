@@ -67,6 +67,7 @@ final class OidcSettingsController extends Controller
         $validated = $request->validate([
             'enabled' => ['required', 'boolean'],
             'label' => ['required', 'string', 'max:80'],
+            'password_login_enabled' => ['required', 'boolean'],
 
             'discovery_url' => ['nullable', 'string', 'max:500', 'url', $secureUrl],
             'issuer' => ['required_if:enabled,true', 'nullable', 'string', 'max:500', 'url', $secureUrl],
@@ -89,6 +90,7 @@ final class OidcSettingsController extends Controller
 
             'scopes' => ['required', 'string', 'max:255'],
             'groups_claim' => ['required', 'string', 'max:120'],
+            'trust_provider_email' => ['required', 'boolean'],
 
             'create_users' => ['required', 'boolean'],
             'sync_roles' => ['required', 'boolean'],
@@ -108,6 +110,7 @@ final class OidcSettingsController extends Controller
         $settings->fill([
             'enabled' => $validated['enabled'],
             'label' => $validated['label'],
+            'password_login_enabled' => $validated['password_login_enabled'],
             'discovery_url' => $validated['discovery_url'] ?? null,
             'issuer' => $validated['issuer'] ?? null,
             'client_id' => $validated['client_id'] ?? null,
@@ -118,6 +121,7 @@ final class OidcSettingsController extends Controller
             'end_session_endpoint' => $validated['end_session_endpoint'] ?? null,
             'scopes' => $validated['scopes'],
             'groups_claim' => $validated['groups_claim'],
+            'trust_provider_email' => $validated['trust_provider_email'],
             'create_users' => $validated['create_users'],
             'sync_roles' => $validated['sync_roles'],
             'allowed_groups' => array_values(array_filter(
@@ -139,6 +143,23 @@ final class OidcSettingsController extends Controller
             return response()->json([
                 'message' => 'Single sign-on cannot be switched on until the issuer, client id, client secret and the authorisation and token endpoints are all set.',
                 'errors' => ['enabled' => ['Fill in the provider details first, then switch it on.']],
+            ], 422);
+        }
+
+        /*
+         * Turning the password form off is only allowed while single sign-on can
+         * actually be used, because the two settings together decide whether
+         * there is any way into the console at all. The model refuses to honour
+         * the flag when SSO is unusable, so this is the earlier, clearer failure:
+         * an administrator finds out at the form rather than from a sign-in page
+         * that quietly still shows a password box.
+         */
+        if (! $validated['password_login_enabled'] && ! $settings->isUsable()) {
+            return response()->json([
+                'message' => 'Password sign-in can only be switched off once single sign-on is on and working.',
+                'errors' => ['password_login_enabled' => [
+                    'Switch single sign-on on first — and sign in with it once, so you know it works.',
+                ]],
             ], 422);
         }
 
@@ -245,6 +266,7 @@ final class OidcSettingsController extends Controller
             'settings' => [
                 'enabled' => (bool) $settings->enabled,
                 'label' => (string) $settings->label,
+                'password_login_enabled' => (bool) $settings->password_login_enabled,
                 'discovery_url' => $settings->discovery_url,
                 'issuer' => $settings->issuer,
                 'client_id' => $settings->client_id,
@@ -257,12 +279,21 @@ final class OidcSettingsController extends Controller
                 'end_session_endpoint' => $settings->end_session_endpoint,
                 'scopes' => (string) $settings->scopes,
                 'groups_claim' => (string) $settings->groups_claim,
+                'trust_provider_email' => (bool) $settings->trust_provider_email,
                 'create_users' => (bool) $settings->create_users,
                 'sync_roles' => (bool) $settings->sync_roles,
                 'allowed_groups' => $settings->allowedGroupList(),
                 'usable' => $settings->isUsable(),
                 'discovered_at' => $settings->discovered_at?->toIso8601String(),
             ],
+            /*
+             * What is actually true right now, as against what the checkbox says
+             * — they differ when SSO is unusable or the environment override is
+             * set, and an administrator looking at a password box the setting
+             * claims to have removed deserves to be told why.
+             */
+            'password_login_effective' => $settings->passwordLoginAllowed(),
+            'password_login_forced' => config('console.force_password_login') === true,
             /*
              * The redirect URI to register at the IdP, computed from this
              * install's own URL. Getting it wrong is the single most common
@@ -286,6 +317,9 @@ final class OidcSettingsController extends Controller
             // So the screen can say how many accounts this provider already owns
             // before someone switches it off.
             'linked_accounts' => User::query()->whereNotNull('oidc_subject')->count(),
+            // And how many could still get in with a password, which is the
+            // number that matters before switching the password form off.
+            'password_accounts' => User::query()->whereNotNull('password')->count(),
         ];
     }
 

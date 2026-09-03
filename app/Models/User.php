@@ -120,11 +120,34 @@ class User extends Authenticatable
 
     /**
      * True when this account can change production and therefore must have TOTP
-     * enrolled.
+     * enrolled *here*.
+     *
+     * Accounts that can only be entered through the identity provider are exempt:
+     * they have no password, so the provider is the sole gate, and second-factor
+     * policy is the provider's to enforce. Demanding a second, console-local
+     * factor on top would be asking someone to carry two authenticators for one
+     * sign-in, and section 3.5.1 is about there being a second factor at all —
+     * not about this application owning it.
+     *
+     * An account that also has a password is not exempt, and that distinction is
+     * the whole point: a password is a way in that never touches the provider, so
+     * whatever MFA the provider enforces is not on that path.
      */
     public function requiresTwoFactor(): bool
     {
+        if ($this->signsInOnlyWithSingleSignOn()) {
+            return false;
+        }
+
         return $this->hasAnyPermission(Permissions::requiringTwoFactor());
+    }
+
+    /**
+     * Whether the identity provider is this account's only way in.
+     */
+    public function signsInOnlyWithSingleSignOn(): bool
+    {
+        return $this->oidc_subject !== null && ! filled($this->password);
     }
 
     public function hasTwoFactorEnabled(): bool

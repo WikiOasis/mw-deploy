@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ConfirmPassword;
 use App\Http\Middleware\EnsureAppAccess;
 use App\Http\Middleware\RequireTwoFactor;
 use Illuminate\Foundation\Application;
@@ -34,6 +35,13 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'two-factor' => RequireTwoFactor::class,
+            /*
+             * Fortify puts TOTP enrolment behind password confirmation. Ours lets
+             * an account that has no password through, because otherwise the
+             * two-factor screen is a dead end for every account single sign-on
+             * provisioned. See App\Http\Middleware\ConfirmPassword.
+             */
+            'password.confirm' => ConfirmPassword::class,
             // Applied to each app's own route group by routes/api.php: an
             // account with no grant inside an app cannot reach any of it.
             'app.access' => EnsureAppAccess::class,

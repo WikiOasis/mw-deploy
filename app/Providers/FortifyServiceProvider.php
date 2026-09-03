@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -66,6 +67,19 @@ class FortifyServiceProvider extends ServiceProvider
             $user = User::query()->where($field, $identifier)->first();
 
             /*
+             * An install with single sign-on working may switch the password form
+             * off entirely. Refused here rather than only hidden on the page: the
+             * endpoint stays registered, so a hidden form is not a closed door.
+             *
+             * `passwordLoginAllowed()` is what keeps that from locking anyone out
+             * — it answers true whenever SSO is not usable, and the environment
+             * carries a break-glass override.
+             */
+            if (! OidcSettings::current()->passwordLoginAllowed()) {
+                return null;
+            }
+
+            /*
              * The one addition to Fortify's own check. Everything else is
              * delegated to the guard's user provider rather than reimplemented,
              * so credential verification and the rehash-on-login behaviour stay
@@ -96,6 +110,26 @@ class FortifyServiceProvider extends ServiceProvider
          * changes from the settings screen, and a stale button that points at a
          * provider this console no longer trusts is worse than a query.
          */
+        /*
+         * Enabling or disabling TOTP is behind password confirmation (see
+         * config/fortify.php). An account provisioned by single sign-on has no
+         * password to confirm, which made enrolment impossible for exactly the
+         * accounts that most need it: grant one a deploy role and RequireTwoFactor
+         * then blocks it from everything *except* an enrolment screen it cannot
+         * get through. That is a locked-out account, not a secured one.
+         *
+         * So a passwordless account confirms by virtue of holding the session it
+         * already got from the identity provider. Every account that does have a
+         * password is confirmed the ordinary way, unchanged.
+         */
+        Fortify::confirmPasswordsUsing(function ($user, ?string $password): bool {
+            if ($user instanceof User && ! filled($user->password)) {
+                return true;
+            }
+
+            return Hash::check((string) $password, (string) $user->password);
+        });
+
         Fortify::loginView(fn () => view('auth.login', [
             /*
              * `rescue`, because this runs on the one page an operator needs
@@ -104,7 +138,11 @@ class FortifyServiceProvider extends ServiceProvider
              * 500s in that window is a bad way to find out. No row means no
              * button, which is the correct answer anyway.
              */
-            'oidc' => rescue(fn (): OidcSettings => OidcSettings::current(), new OidcSettings, report: false),
+            'oidc' => $settings = rescue(fn (): OidcSettings => OidcSettings::current(), new OidcSettings, report: false),
+            // Whether to draw the password form at all. The same answer the
+            // authentication callback gives, so the page cannot offer a form that
+            // would be refused, nor hide one that still works.
+            'passwords' => $settings->passwordLoginAllowed(),
         ]));
         Fortify::twoFactorChallengeView(fn () => view('auth.two-factor-challenge'));
         Fortify::requestPasswordResetLinkView(fn () => view('auth.forgot-password'));
